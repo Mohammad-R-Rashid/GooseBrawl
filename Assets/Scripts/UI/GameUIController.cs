@@ -23,7 +23,9 @@ namespace GooseBrawl
 
         Canvas m_Canvas;
         RectTransform m_ShakeRoot, m_Safe;
-        RectTransform m_Start, m_Scan, m_Place, m_Egg, m_HUD, m_GameOver, m_Coaching, m_Paused;
+        RectTransform m_Start, m_Scan, m_Place, m_Egg, m_HUD, m_GameOver, m_Coaching, m_Paused, m_Carry;
+        Image m_GripFill;
+        UILabel m_CarryTitle;
         Image m_Flash, m_DangerFill, m_ScanEgg, m_TitleEgg, m_NewBestStamp;
         RectTransform[] m_ScanDots;
         RectTransform m_TitleGroup, m_MeterPill, m_ScanBack;
@@ -73,6 +75,7 @@ namespace GooseBrawl
             BuildGameOver();
             BuildCoaching();
             BuildPaused();
+            BuildCarry();
 
             // Locator: live from the fly-in through the chase, above the screens.
             m_Locator = GooseLocator.Create(m_Safe);
@@ -298,6 +301,51 @@ namespace GooseBrawl
                 () => GooseGameManager.Instance.OnMoveNestPressed(), out _);
         }
 
+        /// <summary>The carry phase: a glass pill with the grip bar. Your movement drains it.</summary>
+        void BuildCarry()
+        {
+            m_Carry = MakeScreen("CarryScreen");
+            var pill = UIFactory.CreateGlassPill(m_Carry, "CarryPill", new Vector2(960f, 178f));
+            UIFactory.Place(pill.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -36f), new Vector2(960f, 178f));
+            m_CarryTitle = UIFactory.CreateLabel(pill.transform, "Title", "DON'T DROP IT.", 42f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            UIFactory.Place(m_CarryTitle.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -22f), new Vector2(900f, 60f));
+            var sub = UIFactory.CreateLabel(pill.transform, "Subtitle", "Carry it away from the nest. Slowly.", 30f, UITheme.InkMuted, false, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            UIFactory.Place(sub.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -84f), new Vector2(900f, 50f));
+            var gripLabel = UIFactory.CreateLabel(pill.transform, "GripLabel", "GRIP", 24f, UITheme.InkMuted, true, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud);
+            UIFactory.Place(gripLabel.Rect, new Vector2(0f, 0f), new Vector2(70f, 30f), new Vector2(120f, 30f));
+            var track = UIFactory.CreatePill(pill.transform, "GripTrack", new Color(1f, 1f, 1f, 0.12f), new Vector2(700f, 10f), false);
+            UIFactory.Place(track.rectTransform, new Vector2(1f, 0f), new Vector2(-70f, 40f), new Vector2(700f, 10f));
+            var mask = track.gameObject.AddComponent<Mask>();
+            mask.showMaskGraphic = true;
+            m_GripFill = UIFactory.CreateImage(track.transform, "Fill", null, UITheme.Yolk);
+            m_GripFill.rectTransform.anchorMin = new Vector2(0f, 0f);
+            m_GripFill.rectTransform.anchorMax = new Vector2(0f, 1f);
+            m_GripFill.rectTransform.pivot = new Vector2(0f, 0.5f);
+            m_GripFill.rectTransform.anchoredPosition = Vector2.zero;
+            m_GripFill.rectTransform.sizeDelta = new Vector2(700f, 0f);
+        }
+
+        public void ShowCarry()
+        {
+            HideAll();
+            m_Carry.gameObject.SetActive(true);
+            SetGrip(1f);
+        }
+
+        public void HideCarry()
+        {
+            m_Carry.gameObject.SetActive(false);
+        }
+
+        public void SetGrip(float grip01)
+        {
+            if (m_GripFill == null) return;
+            float g = Mathf.Clamp01(grip01);
+            m_GripFill.rectTransform.sizeDelta = new Vector2(700f * g, 0f);
+            m_GripFill.color = Color.Lerp(UITheme.Danger, UITheme.Yolk, Mathf.Clamp01((g - 0.2f) / 0.5f));
+            if (m_CarryTitle != null) m_CarryTitle.Text = g < 0.35f ? "IT'S SLIPPING." : "DON'T DROP IT.";
+        }
+
         void BuildCoaching()
         {
             m_Coaching = MakeScreen("Coaching");
@@ -361,6 +409,7 @@ namespace GooseBrawl
             m_GameOver.gameObject.SetActive(false);
             m_Coaching.gameObject.SetActive(false);
             m_Paused.gameObject.SetActive(false);
+            m_Carry.gameObject.SetActive(false);
             m_HudActive = false;
         }
 

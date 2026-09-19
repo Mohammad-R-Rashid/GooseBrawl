@@ -15,31 +15,41 @@ namespace GooseBrawl
         public struct HopSpec
         {
             public float crouchDuration, duration, height, stopDistance, homing, maxDistance;
+            /// <summary>1 = symmetric arc; below 1 the peak comes late, right in front of the player's face.</summary>
+            public float peakSkew;
             public bool canCatch, isDash;
 
-            public static HopSpec Lunge(GooseAttackController a) => new HopSpec
+            /// <summary>The flying lunge. Peaks near camera height so it crosses the phone's view.</summary>
+            public static HopSpec Lunge(GooseAttackController a, float cameraHeight) => new HopSpec
             {
-                crouchDuration = a.crouchDuration, duration = a.lungeDuration, height = a.lungeHeight,
-                stopDistance = a.landingStopDistance, homing = a.homing, maxDistance = 99f, canCatch = true, isDash = false
+                crouchDuration = a.crouchDuration, duration = a.lungeDuration, height = Mathf.Clamp(Mathf.Max(a.lungeHeight, cameraHeight - 0.5f), 0.5f, 1.2f),
+                stopDistance = a.landingStopDistance, homing = a.homing, maxDistance = 99f, peakSkew = 0.65f, canCatch = true, isDash = false
+            };
+
+            /// <summary>Point-blank catch: a quick rise into the player's face instead of a peck below the frame.</summary>
+            public static HopSpec CatchLunge(GooseAttackController a, float cameraHeight) => new HopSpec
+            {
+                crouchDuration = 0.22f, duration = 0.55f, height = Mathf.Clamp(cameraHeight - 0.45f, 0.5f, 1.1f),
+                stopDistance = a.landingStopDistance, homing = 0.6f, maxDistance = 99f, peakSkew = 0.6f, canCatch = true, isDash = false
             };
 
             public static HopSpec Dash(float length, float stopDistance) => new HopSpec
             {
                 crouchDuration = 0.22f, duration = 0.6f, height = 0.28f, stopDistance = stopDistance,
-                homing = 0.15f, maxDistance = length, canCatch = false, isDash = true
+                homing = 0.15f, maxDistance = length, peakSkew = 1f, canCatch = false, isDash = true
             };
         }
 
         [Header("Lunge")]
         [Tooltip("Peak height of the hop in meters (0.4 - 0.8).")]
-        public float lungeHeight = 0.6f;
+        public float lungeHeight = 0.85f;
         public float lungeDuration = 0.8f;
         public float crouchDuration = 0.45f;
         public float lungeCooldown = 7f;
         [Tooltip("Player is caught if within this distance when the goose lands.")]
         public float catchRadius = 0.95f;
         [Tooltip("The lunge lands this far short of the player so the goose never overlaps the camera.")]
-        public float landingStopDistance = 0.6f;
+        public float landingStopDistance = 0.5f;
         [Tooltip("The goose will not lunge before the chase has lasted this long.")]
         public float minChaseTimeBeforeLunge = 8f;
         [Tooltip("How strongly the lunge keeps homing on a moving player (0 = straight line).")]
@@ -63,7 +73,20 @@ namespace GooseBrawl
 
         public IEnumerator LungeRoutine(GooseChaseController goose, Func<Vector3> targetProvider, Action<bool> onDone)
         {
-            return HopRoutine(goose, HopSpec.Lunge(this), targetProvider, onDone);
+            return HopRoutine(goose, HopSpec.Lunge(this, CameraHeight()), targetProvider, onDone);
+        }
+
+        /// <summary>Quick rising catch used when the goose is already within reach.</summary>
+        public IEnumerator CatchLungeRoutine(GooseChaseController goose, Func<Vector3> targetProvider, Action<bool> onDone)
+        {
+            return HopRoutine(goose, HopSpec.CatchLunge(this, CameraHeight()), targetProvider, onDone);
+        }
+
+        float CameraHeight()
+        {
+            var mgr = GooseGameManager.Instance;
+            if (mgr == null || mgr.Player == null) return 1.3f;
+            return Mathf.Clamp(mgr.Player.Position.y - transform.position.y, 0.6f, 2f);
         }
 
         public IEnumerator HopRoutine(GooseChaseController goose, HopSpec spec, Func<Vector3> targetProvider, Action<bool> onDone)
@@ -156,7 +179,8 @@ namespace GooseBrawl
                 }
 
                 Vector3 p = Vector3.Lerp(start, land, k);
-                float h = 4f * spec.height * k * (1f - k);
+                float kk = spec.peakSkew > 0f && spec.peakSkew != 1f ? Mathf.Pow(k, spec.peakSkew) : k;
+                float h = spec.height * Mathf.Sin(kk * Mathf.PI);
                 p = mv.KeepOutOfCamera(p);
                 p.y = start.y + h;
                 transform.position = p;

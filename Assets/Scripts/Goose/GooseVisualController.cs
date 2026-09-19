@@ -43,6 +43,13 @@ namespace GooseBrawl
 
         PlayableGraph m_Graph;
         AnimationMixerPlayable m_Mixer;
+        AnimationLayerMixerPlayable m_LayerMixer;
+        AnimationClipPlayable m_WingPlayable;
+        bool m_HasWingLayer;
+        float m_WingWeight, m_WingTarget;
+        /// <summary>Current weight of the wing-flap layer (0 = wings follow the locomotion clip).</summary>
+        public float WingLayerWeight => m_WingWeight;
+        public bool HasWingLayer => m_HasWingLayer;
         AnimationClipPlayable[] m_ClipPlayables;
         bool[] m_HasClip;
         float[] m_Weights;
@@ -188,10 +195,69 @@ namespace GooseBrawl
                 m_Graph.Connect(cp, 0, m_Mixer, i);
                 m_Mixer.SetInputWeight(i, 0f);
             }
-            output.SetSourcePlayable(m_Mixer);
+            // Wing layer: the Fly clip's wing motion, masked to the wing bones, blended over walk/run so the goose can flap on the move.
+            m_LayerMixer = AnimationLayerMixerPlayable.Create(m_Graph, 2);
+            m_Graph.Connect(m_Mixer, 0, m_LayerMixer, 0);
+            m_LayerMixer.SetInputWeight(0, 1f);
+            var wingClip = resolver.Get(GooseAnimationResolver.Slot.Fly) ?? resolver.Get(GooseAnimationResolver.Slot.Flap);
+            if (wingClip != null && (leftWingBone != null || rightWingBone != null))
+            {
+                m_WingPlayable = AnimationClipPlayable.Create(m_Graph, wingClip);
+                m_WingPlayable.SetApplyFootIK(false);
+                m_WingPlayable.SetSpeed(1.25);
+                m_Graph.Connect(m_WingPlayable, 0, m_LayerMixer, 1);
+                m_LayerMixer.SetInputWeight(1, 0f);
+                var mask = BuildWingMask();
+                if (mask != null)
+                {
+                    m_LayerMixer.SetLayerMaskFromAvatarMask(1, mask);
+                    m_HasWingLayer = true;
+                }
+            }
+            output.SetSourcePlayable(m_LayerMixer);
             m_Graph.Play();
             m_UsePlayables = true;
             Play(GooseAnimationResolver.Slot.Idle, 0f, 1f, true);
+        }
+
+        /// <summary>Avatar mask containing only the wing bone hierarchies (paths relative to the Animator).</summary>
+        AvatarMask BuildWingMask()
+        {
+            if (animator == null) return null;
+            var paths = new List<string>();
+            foreach (var wing in new[] { leftWingBone, rightWingBone })
+            {
+                if (wing == null) continue;
+                foreach (var t in wing.GetComponentsInChildren<Transform>(true))
+                    paths.Add(RelativePath(t, animator.transform));
+            }
+            if (paths.Count == 0) return null;
+            var mask = new AvatarMask();
+            mask.transformCount = paths.Count;
+            for (int i = 0; i < paths.Count; i++)
+            {
+                mask.SetTransformPath(i, paths[i]);
+                mask.SetTransformActive(i, true);
+            }
+            return mask;
+        }
+
+        static string RelativePath(Transform t, Transform root)
+        {
+            var parts = new List<string>();
+            while (t != null && t != root)
+            {
+                parts.Add(t.name);
+                t = t.parent;
+            }
+            parts.Reverse();
+            return string.Join("/", parts);
+        }
+
+        /// <summary>0 = wings as in the locomotion clip, 1 = full flight flapping layered over it.</summary>
+        public void SetWingLayer(float weight)
+        {
+            m_WingTarget = Mathf.Clamp01(weight);
         }
 
         int ResolveIndex(GooseAnimationResolver.Slot slot)
@@ -267,6 +333,15 @@ namespace GooseBrawl
         void Update()
         {
             if (!m_UsePlayables) return;
+            if (m_HasWingLayer)
+            {
+                float w = Mathf.MoveTowards(m_WingWeight, m_WingTarget, Time.deltaTime * (m_WingTarget > m_WingWeight ? 6f : 3f));
+                if (w != m_WingWeight)
+                {
+                    m_WingWeight = w;
+                    m_LayerMixer.SetInputWeight(1, w);
+                }
+            }
             float step = Time.deltaTime / m_FadeDuration;
             for (int i = 0; i < m_Weights.Length; i++)
             {

@@ -59,9 +59,10 @@ namespace GooseBrawl
             ConfigureDsp();
             LoadRealHonks();
             GenerateClips();
+            // x = distance / maxDistance. Full volume to 1.2 m, still 70% at 3 m: the goose stays the loudest thing in the room.
             m_Rolloff = new AnimationCurve(
-                new Keyframe(0f, 1f, 0f, 0f), new Keyframe(0.08f, 1f, 0f, -1.4f), new Keyframe(0.3f, 0.5f, -1.2f, -1.2f),
-                new Keyframe(0.6f, 0.18f, -0.5f, -0.5f), new Keyframe(1f, 0f, -0.1f, 0f));
+                new Keyframe(0f, 1f, 0f, 0f), new Keyframe(0.12f, 1f, 0f, -0.9f), new Keyframe(0.3f, 0.72f, -0.9f, -0.9f),
+                new Keyframe(0.6f, 0.36f, -0.6f, -0.6f), new Keyframe(1f, 0f, -0.1f, 0f));
 
             m_UI = MakeSource("UI", 0f);
             m_Voice2D = MakeSource("Voice2D", 0f);
@@ -418,7 +419,7 @@ namespace GooseBrawl
             var clip = Pick(m_Footsteps, ref m_FootstepIdx);
             if (source == null || clip == null) return;
             source.pitch = Random.Range(0.9f, 1.12f) * SlowMoPitch;
-            source.PlayOneShot(clip, Mathf.Lerp(0.3f, 0.65f, intensity) * masterVolume);
+            source.PlayOneShot(clip, Mathf.Lerp(0.22f, 0.5f, intensity) * masterVolume);
         }
 
         /// <summary>Flap-dash launch: push-off, wing and air, layered.</summary>
@@ -444,7 +445,7 @@ namespace GooseBrawl
             if (source == null || m_WingBeatLoop == null) return;
             source.clip = m_WingBeatLoop;
             source.loop = true;
-            source.volume = 0.85f * masterVolume;
+            source.volume = 0.6f * masterVolume;
             source.pitch = 1f;
             if (!source.isPlaying) source.Play();
         }

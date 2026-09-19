@@ -14,7 +14,7 @@ namespace GooseBrawl
         public EggController Egg { get; private set; }
 
         Light m_Light;
-        float m_LightBase = 0.42f;
+        float m_LightBase = 0.3f;
         float m_Seed;
 
         public static NestController Create(MaterialLibrary mats)
@@ -77,7 +77,7 @@ namespace GooseBrawl
             m_Light.type = LightType.Point;
             m_Light.range = 0.8f;
             m_Light.intensity = m_LightBase;
-            m_Light.color = new Color(1f, 0.9f, 0.74f);
+            m_Light.color = new Color(1f, 0.93f, 0.82f);
             m_Light.shadows = LightShadows.None;
         }
 

@@ -366,14 +366,10 @@ namespace GooseBrawl
             return img;
         }
 
-        /// <summary>Dark glass pill: near-black translucent body with a faint light edge along the top.</summary>
+        /// <summary>Dark glass pill: near-black translucent body (no highlight line; it read as a stray bar on the phone).</summary>
         public static Image CreateGlassPill(Transform parent, string name, Vector2 size, bool strong = false, bool raycast = false)
         {
-            var body = CreatePill(parent, name, strong ? UITheme.GlassStrong : UITheme.Glass, size, raycast);
-            var line = CreatePill(body.transform, "Edge", UITheme.GlassLine, new Vector2(size.x - 24f, 3f), false);
-            Place(line.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -6f), new Vector2(size.x - 24f, 3f));
-            line.pixelsPerUnitMultiplier = 62f / 3f;
-            return body;
+            return CreatePill(parent, name, strong ? UITheme.GlassStrong : UITheme.Glass, size, raycast);
         }
 
         /// <summary>Glass rounded card (for pause / coaching).</summary>

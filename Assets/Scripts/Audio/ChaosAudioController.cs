@@ -11,7 +11,7 @@ namespace GooseBrawl
     public class ChaosAudioController : MonoBehaviour
     {
         [Header("Heartbeat (one-shot per beat, haptic in sync)")]
-        [Range(0f, 1f)] public float heartbeatVolume = 0.85f;
+        [Range(0f, 1f)] public float heartbeatVolume = 0.55f;
         [Tooltip("Beats per second at danger 0 and 1.")]
         public float heartRateCalm = 0.9f;
         public float heartRatePanic = 2.2f;
@@ -19,14 +19,14 @@ namespace GooseBrawl
         public float heartbeatStart = 0.25f;
 
         [Header("Breathing")]
-        [Range(0f, 1f)] public float breathVolume = 0.5f;
+        [Range(0f, 1f)] public float breathVolume = 0.3f;
         public float breathPitchCalm = 0.9f;
         public float breathPitchPanic = 1.5f;
         [Tooltip("Seconds of chase before you start audibly puffing.")]
         public float breathStartTime = 6f;
 
         [Header("Flock ambience (rage mode)")]
-        [Range(0f, 1f)] public float flockVolume = 0.3f;
+        [Range(0f, 1f)] public float flockVolume = 0.15f;
 
         [Header("Random goose flaps")]
         public float flapIntervalMin = 4f;

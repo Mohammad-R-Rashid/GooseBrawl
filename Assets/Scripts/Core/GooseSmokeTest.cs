@@ -112,8 +112,18 @@ namespace GooseBrawl
             yield return null;
 
             mgr.OnStealEggPressed();
-            // Wait for the goose to exist and start its fly-in, then look away to prove the Glare waits for us.
+            // Carry phase: walk backwards so the grip drains from movement (the slip is player-caused).
+            yield return new WaitForSeconds(0.9f);
+            yield return Shot("04c_carry");
+            mgr.Mock.AutoMove = new Vector2(1f, 0f); // sidestep into open floor
             float t = 0f;
+            while (mgr.Nest.Egg.CrackedEgg == null && t < 12f) { t += Time.deltaTime; yield return null; }
+            mgr.Mock.AutoMove = Vector2.zero;
+            Check(t < 6f, "Grip drained from movement within " + t.ToString("F1") + " s");
+            // Back to the original spot and facing so the entrance and the head-start run are reproducible.
+            mgr.Mock.TeleportTo(playerBefore, fwdBefore);
+            // Wait for the goose to exist and start its fly-in, then look away to prove the Glare waits for us.
+            t = 0f;
             while (mgr.Goose == null && t < 20f) { t += Time.deltaTime; yield return null; }
             Check(mgr.Goose != null, "Goose spawned for the fly-in");
             if (mgr.Goose == null) { Finish(); yield break; }
@@ -171,11 +181,23 @@ namespace GooseBrawl
             t = 0f;
             float lastLog = -1f;
             bool locatorSeen = false;
+            bool runFlapShot = false;
             var locator = FindAnyObjectByType<GooseLocator>();
             while (t < 6f && mgr.ChaseActive)
             {
                 t += Time.deltaTime;
                 Sample(mgr, goose, crateCol);
+                if (!runFlapShot && goose.Visual.WingLayerWeight > 0.5f && (goose.State == GooseState.Run || goose.State == GooseState.Walk))
+                {
+                    runFlapShot = true;
+                    Vector3 keepFwd = mgr.Player.FlatForward;
+                    Vector2 keepMove = mgr.Mock.AutoMove;
+                    mgr.Mock.AutoMove = Vector2.zero;
+                    mgr.Mock.LookAt(goose.transform.position + Vector3.up * 0.5f);
+                    yield return Shot("08b_run_flap");
+                    mgr.Mock.TeleportTo(mgr.Player.FlatPosition, keepFwd);
+                    mgr.Mock.AutoMove = keepMove;
+                }
                 if (locator != null && locator.transform.childCount > 0 && locator.transform.GetChild(0).gameObject.activeSelf) locatorSeen = true;
                 if (t - lastLog >= 1f)
                 {
@@ -213,8 +235,15 @@ namespace GooseBrawl
             {
                 t += Time.deltaTime;
                 Sample(mgr, goose, crateCol);
+                if (!runFlapShot && goose.Visual.WingLayerWeight > 0.5f && (goose.State == GooseState.Run || goose.State == GooseState.Walk))
+                {
+                    runFlapShot = true;
+                    yield return Shot("09b_run_flap");
+                }
                 yield return null;
             }
+            Check(goose.Visual.HasWingLayer, "Wing flap layer built (mask over the wing bones)");
+            Check(goose.RunFlapCount > 0, "Goose flapped while moving (bursts=" + goose.RunFlapCount + ")");
             if (goose.DashCount > dashesBefore)
             {
                 yield return new WaitForSeconds(0.3f);

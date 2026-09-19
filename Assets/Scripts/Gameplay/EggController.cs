@@ -280,45 +280,58 @@ namespace GooseBrawl
         }
 
         /// <summary>Held position in camera space: low right, like an egg in your hand in front of the phone.</summary>
-        static readonly Vector3 k_HandLocal = new Vector3(0.14f, -0.13f, 0.46f);
+        static readonly Vector3 k_HandLocal = new Vector3(0.06f, -0.14f, 0.44f);
 
-        /// <summary>Fly from the nest into your hand and stay there (parented to the camera) until dropped.</summary>
+        /// <summary>Fly from the nest into your hand and stay there (parented to the camera) until dropped. A quick, clean swoop, no spinning.</summary>
         public IEnumerator FlyToCamera(Camera cam)
         {
             Tappable = false;
             float t = 0f;
             Vector3 startPos = transform.position;
+            Quaternion startRot = transform.rotation;
             Vector3 startScale = transform.localScale;
             transform.SetParent(null, true);
             while (t < flyDuration)
             {
                 float dt = Time.deltaTime;
                 t += dt;
-                float k = Mathf.SmoothStep(0f, 1f, t / flyDuration);
+                float k = 1f - Mathf.Pow(1f - Mathf.Clamp01(t / flyDuration), 3f); // ease out
                 Vector3 target = cam != null ? cam.transform.TransformPoint(k_HandLocal) : startPos + Vector3.up;
-                transform.position = Vector3.Lerp(startPos, target, k) + Vector3.up * (Mathf.Sin(k * Mathf.PI) * 0.3f);
-                transform.localScale = startScale * Mathf.Lerp(1f, 0.85f, k);
-                transform.Rotate(0f, 540f * dt, 0f, Space.World);
+                Quaternion targetRot = cam != null ? cam.transform.rotation * Quaternion.Euler(k_HeldTilt) : startRot;
+                transform.position = Vector3.Lerp(startPos, target, k) + Vector3.up * (Mathf.Sin(k * Mathf.PI) * 0.12f);
+                transform.rotation = Quaternion.Slerp(startRot, targetRot, k);
+                transform.localScale = startScale * Mathf.Lerp(1f, 0.9f, k);
                 yield return null;
             }
             if (cam != null)
             {
                 transform.SetParent(cam.transform, true);
                 transform.localPosition = k_HandLocal;
+                transform.localRotation = Quaternion.Euler(k_HeldTilt);
             }
             m_Held = true;
+            m_HeldTime = 0f;
+            HandShake = 0f;
         }
+
+        static readonly Vector3 k_HeldTilt = new Vector3(18f, 0f, -12f);
 
         bool m_Held;
         float m_HeldTime;
+        /// <summary>0 = steady hand, 1 = about to slip. Drives the wobble of the held egg (set by the carry phase).</summary>
+        public float HandShake { get; set; }
 
         void LateUpdate()
         {
             if (!m_Held) return;
             m_HeldTime += Time.deltaTime;
-            // Gentle bob in the hand so it reads as "held", not "stuck to the screen".
-            transform.localPosition = k_HandLocal + new Vector3(0f, 0.01f * Mathf.Sin(m_HeldTime * 3f), 0f);
-            transform.localRotation = Quaternion.Euler(Mathf.Sin(m_HeldTime * 2.1f) * 6f + 20f, m_HeldTime * 25f, Mathf.Sin(m_HeldTime * 1.7f) * 5f);
+            float shake = Mathf.Clamp01(HandShake);
+            float f = 3f + 9f * shake;
+            // Gentle bob in the hand so it reads as "held", plus a growing wobble the closer it is to slipping.
+            Vector3 jitter = new Vector3(Mathf.Sin(m_HeldTime * f * 1.3f), Mathf.Sin(m_HeldTime * f), Mathf.Cos(m_HeldTime * f * 0.7f)) * (0.004f + 0.02f * shake);
+            transform.localPosition = k_HandLocal + new Vector3(0f, 0.008f * Mathf.Sin(m_HeldTime * 3f), 0f) + jitter;
+            float wobble = 4f + 22f * shake;
+            transform.localRotation = Quaternion.Euler(k_HeldTilt + new Vector3(Mathf.Sin(m_HeldTime * f) * wobble, Mathf.Sin(m_HeldTime * f * 0.6f) * wobble * 0.6f, Mathf.Cos(m_HeldTime * f * 1.1f) * wobble));
         }
     }
 }

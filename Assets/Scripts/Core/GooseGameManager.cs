@@ -38,6 +38,14 @@ namespace GooseBrawl
         [Tooltip("Repeat rounds play the steal beat this much faster (and it can be tapped through).")]
         public float repeatBeatSpeed = 0.65f;
 
+        [Header("Carry (the egg slips because of how you move)")]
+        [Tooltip("Seconds the grip lasts if you stand perfectly still.")]
+        public float gripStillSeconds = 7f;
+        [Tooltip("Extra grip drained per second at 1 m/s of phone movement.")]
+        public float gripDrainPerMeterPerSecond = 0.32f;
+        [Tooltip("Extra grip drained per second at 90 deg/s of phone rotation.")]
+        public float gripDrainPerTurn = 0.22f;
+
         public GooseGameState State { get; private set; } = GooseGameState.Boot;
         public event Action<GooseGameState> StateChanged;
 
@@ -314,15 +322,18 @@ namespace GooseBrawl
             UI.ShowStealing();
             Audio.PlayEggPickup();
             Haptics.Transient(0.5f, 0.7f);
-            UI.ShowMessage("BREAKFAST TIME!", 1.2f * speed, UITheme.Yolk);
+            UI.ShowMessage("BREAKFAST TIME!", 1.0f * speed, UITheme.Yolk);
             yield return Nest.StealEgg(Player.Cam);
-            yield return Beat(0.6f);
-            if (!m_SkipRequested) UI.ShowMessage("GOT IT.\nLET'S GO COOK.", 1.5f * speed, UITheme.Yolk);
-            yield return Beat(1.6f);
+
+            // Carry it: the grip drains with time and with how much the phone moves. The slip is on you.
+            UI.ShowCarry();
+            UI.ShowMessage("GOT IT.\nDON'T DROP IT.", 1.3f * speed, UITheme.Yolk);
+            yield return CarryRoutine();
+            UI.HideCarry();
 
             // The fumble: the egg slips, falls (in slow motion so you can see it) and cracks. That noise wakes the goose.
-            UI.ShowMessage("NO NO NO", 2.2f * speed);
-            Time.timeScale = 0.4f;
+            UI.ShowMessage("NO NO NO", 1.6f * speed);
+            Time.timeScale = 0.55f;
             if (Look != null) Look.SetSlowMotion(true);
             yield return Nest.DropEgg(Player.Cam, FloorY, Materials);
             Time.timeScale = 1f;
@@ -339,6 +350,53 @@ namespace GooseBrawl
             UI.ShowMessage(k_SecondLines[UnityEngine.Random.Range(0, k_SecondLines.Length)], 1.4f * speed);
             yield return Beat(1.3f);
             SpawnGoose();
+        }
+
+        IEnumerator CarryRoutine()
+        {
+            var cam = Player.Cam;
+            float grip = 1f;
+            float still = 0f;
+            bool warned = false, hinted = false;
+            float repeat = RoundsThisSession > 0 ? 1.7f : 1f;
+            Vector3 lastPos = cam != null ? cam.transform.position : Vector3.zero;
+            Quaternion lastRot = cam != null ? cam.transform.rotation : Quaternion.identity;
+            var egg = Nest != null ? Nest.Egg : null;
+            while (grip > 0f)
+            {
+                if (m_SkipRequested) break;
+                float dt = Time.deltaTime;
+                if (dt <= 0f) { yield return null; continue; }
+                float speed = 0f, turn = 0f;
+                if (cam != null)
+                {
+                    Vector3 p = cam.transform.position;
+                    Quaternion r = cam.transform.rotation;
+                    speed = Vector3.Distance(p, lastPos) / dt;
+                    turn = Quaternion.Angle(r, lastRot) / dt;
+                    lastPos = p;
+                    lastRot = r;
+                }
+                // Ignore tracking jitter, count real movement.
+                float motion = Mathf.Clamp01((speed - 0.08f) / 1.2f) * gripDrainPerMeterPerSecond + Mathf.Clamp01((turn - 8f) / 90f) * gripDrainPerTurn;
+                grip -= dt * (repeat / Mathf.Max(1f, gripStillSeconds) + motion * repeat);
+                if (egg != null) egg.HandShake = Mathf.Clamp01(motion * 1.5f + (1f - grip) * 0.7f);
+                UI.SetGrip(grip);
+                if (speed < 0.06f && turn < 10f) still += dt; else still = 0f;
+                if (!hinted && still > 2.5f)
+                {
+                    hinted = true;
+                    UI.ShowMessage("GO ON. WALK.", 1.1f, UITheme.Yolk);
+                }
+                if (!warned && grip < 0.4f)
+                {
+                    warned = true;
+                    Haptics.Transient(0.45f, 0.35f);
+                }
+                yield return null;
+            }
+            if (egg != null) egg.HandShake = 1f;
+            Haptics.Transient(0.6f, 0.5f);
         }
 
         void SpawnGoose()
@@ -368,7 +426,7 @@ namespace GooseBrawl
                 return;
             }
 
-            // Landing spot: beside the nest when the nest is roughly where the player is looking, otherwise straight ahead.
+            // Landing spot: in the view cone, on free floor, with a clear line of sight from the phone (never inside a wall or a couch).
             Vector3 dir = fwd;
             float landDist = Mathf.Lerp(minLandingDistance, maxLandingDistance, 0.5f);
             if (Nest != null)
@@ -383,28 +441,76 @@ namespace GooseBrawl
                 }
             }
             landDist = Mathf.Clamp(landDist, minLandingDistance, maxLandingDistance);
-            Vector3 landing = playerFlat + dir * landDist;
-            landing = Goose.Avoidance.FindFreeSpawn(landing, playerFlat, landDist, FloorY);
-            // Keep the landing inside the view cone even after FindFreeSpawn rotated it.
-            Vector3 toLanding = landing - playerFlat; toLanding.y = 0f;
-            if (toLanding.sqrMagnitude > 1e-3f && Vector3.Angle(fwd, toLanding) > 40f)
-            {
-                landing = playerFlat + fwd * landDist;
-                landing.y = FloorY;
-            }
+            Vector3 landing = FindLandingSpot(playerFlat, dir, landDist);
 
-            // Fly-in start: far along the same direction, shortened if a scanned wall is in the way.
-            float flyDist = Goose.flyInDistance;
-            Vector3 flyDir = (landing - playerFlat); flyDir.y = 0f; flyDir.Normalize();
-            Vector3 probeOrigin = new Vector3(landing.x, FloorY + Goose.flyHeight, landing.z);
-            if (Environment.EnvironmentMask.value != 0 &&
-                Physics.SphereCast(probeOrigin, 0.3f, flyDir, out var hit, flyDist, Environment.EnvironmentMask, QueryTriggerInteraction.Ignore))
-                flyDist = Mathf.Max(1.5f, hit.distance - 0.4f);
-            Vector3 start = landing + flyDir * flyDist;
+            // Fly-in start: far along the same line, but never behind a wall or inside furniture; lower the flight if the room is tight.
+            Vector3 flyDir = landing - playerFlat; flyDir.y = 0f; flyDir.Normalize();
+            float flyHeight = Goose.flyHeight;
+            Vector3 start = FindFlyInStart(landing, flyDir, ref flyHeight);
 
             UI.ShowMessage("HERE IT COMES.", 2f, UITheme.Yolk);
             Danger.SpawnEffect();
-            Goose.FlyIn(start, landing, FloorY, BeginChase);
+            Goose.FlyIn(start, landing, FloorY, flyHeight, BeginChase);
+        }
+
+        bool LandingOk(Vector3 p)
+        {
+            if (!Goose.Avoidance.IsPositionFree(p)) return false;
+            if (!Goose.Avoidance.FloorOk(p)) return false;
+            if (Environment.EnvironmentMask.value != 0)
+            {
+                Vector3 eye = Player.Position;
+                Vector3 chest = p + Vector3.up * 0.45f;
+                if (Physics.Linecast(eye, chest, Environment.EnvironmentMask, QueryTriggerInteraction.Ignore)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>Closest-to-ideal spot in front of the player that is free, on the floor and visible from the phone.</summary>
+        Vector3 FindLandingSpot(Vector3 playerFlat, Vector3 dir, float ideal)
+        {
+            float[] angles = { 0f, -15f, 15f, -30f, 30f, -45f, 45f };
+            foreach (float a in angles)
+            {
+                Vector3 d = Quaternion.AngleAxis(a, Vector3.up) * dir;
+                for (float dist = ideal; dist >= minLandingDistance - 0.6f; dist -= 0.3f)
+                {
+                    Vector3 p = playerFlat + d * dist;
+                    p.y = FloorY;
+                    if (LandingOk(p)) return p;
+                }
+            }
+            // Nothing in the cone: let the wide search pick a free spot anywhere around the player.
+            Vector3 fallback = Goose.Avoidance.FindFreeSpawn(playerFlat + dir * ideal, playerFlat, ideal, FloorY);
+            fallback.y = FloorY;
+            return fallback;
+        }
+
+        /// <summary>Start of the fly-in: as far as the room allows along the line of sight, at a height whose path is clear.</summary>
+        Vector3 FindFlyInStart(Vector3 landing, Vector3 flyDir, ref float height)
+        {
+            float[] heights = { height, 1.15f, 0.75f };
+            var mask = Environment.EnvironmentMask;
+            foreach (float h in heights)
+            {
+                float dist = Goose.flyInDistance;
+                Vector3 origin = new Vector3(landing.x, FloorY + h, landing.z);
+                if (mask.value != 0 && Physics.SphereCast(origin, 0.45f, flyDir, out var hit, dist, mask, QueryTriggerInteraction.Ignore))
+                    dist = hit.distance - 1.0f;
+                if (dist >= 2f)
+                {
+                    Vector3 start = landing + flyDir * dist;
+                    start.y = FloorY + h;
+                    if (mask.value == 0 || !Physics.CheckSphere(start, 0.45f, mask, QueryTriggerInteraction.Ignore))
+                    {
+                        height = h;
+                        return new Vector3(start.x, FloorY, start.z);
+                    }
+                }
+            }
+            // Tight room: a short low hop in from just beyond the landing spot.
+            height = 0.6f;
+            return landing + flyDir * 1.4f;
         }
 
         void BeginChase()

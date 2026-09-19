@@ -73,6 +73,12 @@ namespace GooseBrawl
         public float thinkPauseDuration = 0.7f;
         public float stuckRecoverDuration = 0.8f;
 
+        [Header("Wing flaps on the move (geese flap constantly while running)")]
+        public float runFlapBurstMin = 0.6f;
+        public float runFlapBurstMax = 1.2f;
+        public float runFlapPauseMin = 1.6f;
+        public float runFlapPauseMax = 3.4f;
+
         [Header("Honks")]
         public float honkIntervalFar = 5.5f;
         public float honkIntervalNear = 1.1f;
@@ -112,6 +118,9 @@ namespace GooseBrawl
 
         GooseGameManager m_Mgr;
         float m_NextReplan, m_NextHonk, m_NextFlap, m_NextFootstep, m_StateTimer, m_NextDash, m_DashBoostUntil;
+        float m_NextRunFlap, m_RunFlapUntil, m_NextRunFlapSound;
+        float m_NextCatchLunge;
+        public int RunFlapCount { get; private set; }
         Vector3 m_LastDecisionDir = Vector3.forward;
         Vector3 m_RecoveryDir = Vector3.back;
         bool m_Spawned;
@@ -119,6 +128,7 @@ namespace GooseBrawl
         int m_StuckCount;
         AudioLowPassFilter m_VoiceLp, m_BodyLp;
         float m_BehindCutoff = 22000f;
+        float m_FlyHeight = 1.7f;
 
         void Awake()
         {
@@ -196,11 +206,17 @@ namespace GooseBrawl
         /// </summary>
         public void FlyIn(Vector3 start, Vector3 landing, float floorY, System.Action onLanded)
         {
+            FlyIn(start, landing, floorY, flyHeight, onLanded);
+        }
+
+        public void FlyIn(Vector3 start, Vector3 landing, float floorY, float height, System.Action onLanded)
+        {
+            m_FlyHeight = Mathf.Max(0.3f, height);
             Movement.FloorY = floorY;
             Avoidance.FloorY = floorY;
             Vector3 dir = landing - start;
             dir.y = 0f;
-            Movement.Teleport(new Vector3(start.x, floorY + flyHeight, start.z), dir);
+            Movement.Teleport(new Vector3(start.x, floorY + m_FlyHeight, start.z), dir);
             Movement.ExternalControl = true;
             m_Spawned = true;
             FlyingIn = true;
@@ -226,7 +242,7 @@ namespace GooseBrawl
             float nextHonk = Time.time + 0.15f;
             float nextWingHaptic = Time.time + 0.2f;
             float travelled = 0f;
-            float descentStart = Mathf.Max(0f, total - 2.4f);
+            float descentStart = Mathf.Max(0f, total - Mathf.Min(2.4f, total * 0.7f));
 
             while (travelled < total)
             {
@@ -235,11 +251,11 @@ namespace GooseBrawl
                 float k = Mathf.Clamp01(travelled / total);
                 Vector3 p = start + dir * Mathf.Min(travelled, total);
                 float height;
-                if (travelled < descentStart) height = flyHeight + 0.08f * Mathf.Sin(Time.time * 9f);
+                if (travelled < descentStart) height = m_FlyHeight + 0.08f * Mathf.Sin(Time.time * 9f);
                 else
                 {
                     float d = Mathf.Clamp01((travelled - descentStart) / Mathf.Max(0.1f, total - descentStart));
-                    height = Mathf.Lerp(flyHeight, 0f, d * d);
+                    height = Mathf.Lerp(m_FlyHeight, 0f, d * d);
                 }
                 p.y = floorY + height;
                 transform.position = p;
@@ -357,9 +373,11 @@ namespace GooseBrawl
             UpdateTier();
 
             bool grace = Time.time < m_GraceUntil;
-            if (!grace && DistanceToPlayer <= catchDistance)
+            if (!grace && DistanceToPlayer <= catchDistance && State != GooseState.Stunned)
             {
-                Catch();
+                // Never a peck below the frame: the catch is a rising flight into the player's face (it can still miss).
+                if (Time.time >= m_NextCatchLunge) StartCatchLunge();
+                else if (DistanceToPlayer <= catchDistance * 0.5f) Catch();
                 return;
             }
 
@@ -442,6 +460,7 @@ namespace GooseBrawl
             float tilt = State == GooseState.Run ? Mathf.Lerp(9f, 15f, Tier / 3f) : 3f;
             Visual.Procedural.BodyTilt = tilt * Mathf.Clamp01(spd / maxChaseSpeed) + (Rage ? 3f : 0f);
             Visual.SetFeatherTrail(Tier >= 2 && spd > 0.5f);
+            UpdateRunFlaps(spd);
 
             if (spd > 0.1f && Time.time >= m_NextFootstep)
             {
@@ -455,6 +474,36 @@ namespace GooseBrawl
             }
 
             UpdateHonks();
+        }
+
+        /// <summary>Bursts of wing flapping layered over the walk/run clips; more often and stronger as the tiers rise.</summary>
+        void UpdateRunFlaps(float spd)
+        {
+            if (spd < 0.35f)
+            {
+                Visual.SetWingLayer(0f);
+                return;
+            }
+            if (Time.time >= m_NextRunFlap)
+            {
+                float burst = Random.Range(runFlapBurstMin, runFlapBurstMax) * Mathf.Lerp(1f, 1.3f, Tier / 3f);
+                m_RunFlapUntil = Time.time + burst;
+                m_NextRunFlap = m_RunFlapUntil + Random.Range(runFlapPauseMin, runFlapPauseMax) * Mathf.Lerp(1f, 0.5f, Tier / 3f);
+                m_NextRunFlapSound = Time.time + 0.32f;
+                RunFlapCount++;
+                m_Mgr.Audio.PlayFlap(bodySource);
+                if (Tier >= 2) Visual.FeatherBurst(4);
+            }
+            bool flapping = Time.time < m_RunFlapUntil;
+            if (flapping && Time.time >= m_NextRunFlapSound)
+            {
+                m_NextRunFlapSound = Time.time + 0.34f;
+                m_Mgr.Audio.PlayFlap(bodySource);
+            }
+            float weight = flapping ? Mathf.Lerp(0.6f, 0.95f, Tier / 3f) : 0f;
+            // Sprinting late in the chase: wings stay a little out between bursts.
+            if (!flapping && State == GooseState.Run && Tier >= 2 && spd > 0.9f) weight = 0.22f;
+            Visual.SetWingLayer(weight);
         }
 
         void UpdateTier()
@@ -475,6 +524,9 @@ namespace GooseBrawl
             float angle = Mathf.Abs(m_Mgr.Player.SignedAngleTo(transform.position));
             float behind = Mathf.Clamp01((angle - 60f) / 120f);
             float target = Mathf.Lerp(22000f, 2200f, behind * behind);
+            // Distance dulls the goose too, so "closer" always sounds brighter and more present.
+            float far = Mathf.Clamp01((DistanceToPlayer - 1.5f) / 7f);
+            target = Mathf.Min(target, Mathf.Lerp(22000f, 4200f, far));
             float slowMo = m_Mgr.Audio != null ? m_Mgr.Audio.SlowMotionCutoff : 22000f;
             m_BehindCutoff = Mathf.Lerp(m_BehindCutoff, Mathf.Min(target, slowMo), 1f - Mathf.Exp(-dt * 6f));
             m_VoiceLp.cutoffFrequency = m_BehindCutoff;
@@ -612,6 +664,26 @@ namespace GooseBrawl
             Honk(AudioManager.HonkKind.Angry);
         }
 
+        void StartCatchLunge()
+        {
+            SetState(GooseState.JumpAttack);
+            Visual.SetFeatherTrail(false);
+            StartCoroutine(Attack.CatchLungeRoutine(this, () => m_Mgr.Player.FlatPosition, caught =>
+            {
+                if (State == GooseState.GameOver) return;
+                if (caught)
+                {
+                    Catch();
+                }
+                else
+                {
+                    m_NextCatchLunge = Time.time + 1.2f;
+                    SetState(GooseState.Walk);
+                    m_Mgr.NotifyLungeEnded(false);
+                }
+            }));
+        }
+
         void StartLunge()
         {
             SetState(GooseState.JumpAttack);
@@ -677,6 +749,7 @@ namespace GooseBrawl
         {
             if (State == s) return;
             State = s;
+            if (s != GooseState.Walk && s != GooseState.Run) Visual.SetWingLayer(0f);
             switch (s)
             {
                 case GooseState.Idle:
