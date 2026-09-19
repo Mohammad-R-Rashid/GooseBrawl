@@ -392,8 +392,8 @@ namespace GooseBrawl.Editor
                 return c;
             }
             var bloom = Ensure<Bloom>();
-            bloom.intensity.Override(0.4f);
-            bloom.threshold.Override(1.1f);
+            bloom.intensity.Override(0.3f);
+            bloom.threshold.Override(1.3f);
             bloom.scatter.Override(0.6f);
             bloom.highQualityFiltering.Override(false);
             var vignette = Ensure<Vignette>();

@@ -16,7 +16,7 @@ namespace GooseBrawl
         public float baseIntensity = 1.15f;
         [Tooltip("Lumens reported by ARKit that count as a normally lit room.")]
         public float neutralLumens = 1000f;
-        public float minScale = 0.35f, maxScale = 1.6f;
+        public float minScale = 0.35f, maxScale = 1.3f;
         public float smoothing = 4f;
 
         public Color skyAmbient = new Color(0.62f, 0.6f, 0.58f);
@@ -97,16 +97,16 @@ namespace GooseBrawl
             }
             if (le.averageColorTemperature.HasValue)
             {
-                CurrentKelvin = Mathf.Clamp(le.averageColorTemperature.Value, 2200f, 9000f);
+                CurrentKelvin = Mathf.Clamp(le.averageColorTemperature.Value, 3200f, 7000f);
                 Color c = Mathf.CorrelatedColorTemperatureToRGB(CurrentKelvin);
-                // Soften the tint: a fully tinted key light looks like a coloured gel.
-                m_TargetColor = Color.Lerp(Color.white, c, 0.55f);
+                // Only a hint of the room's colour: the camera feed is already white-balanced, so a strong tint reads as a coloured gel.
+                m_TargetColor = Color.Lerp(Color.white, c, 0.28f);
             }
         }
 
         void ApplyAmbient(float scale)
         {
-            RenderSettings.ambientSkyColor = skyAmbient * scale * m_CurrentColor;
+            RenderSettings.ambientSkyColor = skyAmbient * scale;
             RenderSettings.ambientEquatorColor = equatorAmbient * scale;
             RenderSettings.ambientGroundColor = groundAmbient * scale;
         }

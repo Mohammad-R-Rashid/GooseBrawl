@@ -36,8 +36,11 @@ namespace GooseBrawl
             var shell = new Material(mats.Egg) { name = "Egg_Speckled" };
             shell.SetTexture("_BaseMap", ProceduralAssets.SpeckleTexture(512));
             shell.SetColor("_BaseColor", Color.white);
-            shell.SetFloat("_Smoothness", 0.62f);
+            shell.SetFloat("_Smoothness", 0.48f);
             shell.DisableKeyword("_EMISSION");
+            // A matte shell: environment reflections from the AR probes made it look like glazed plastic.
+            shell.SetFloat("_EnvironmentReflections", 0f);
+            shell.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
             r.sharedMaterial = shell;
             r.shadowCastingMode = ShadowCastingMode.On;
             r.receiveShadows = true;

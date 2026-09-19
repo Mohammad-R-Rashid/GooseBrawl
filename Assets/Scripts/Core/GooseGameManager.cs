@@ -560,9 +560,7 @@ namespace GooseBrawl
             Time.timeScale = 0.25f;
             if (Look != null) Look.SetSlowMotion(true);
             UI.ShowMessage("HONK.", 0.9f, UITheme.Danger);
-            yield return new WaitForSecondsRealtime(0.3f);
-            Haptics.Heavy();
-            yield return new WaitForSecondsRealtime(0.6f);
+            yield return new WaitForSecondsRealtime(0.9f); // the Catch haptic's rumble plays through the slow motion untouched
             Time.timeScale = 1f;
             if (Look != null) Look.SetSlowMotion(false);
             yield return new WaitForSecondsRealtime(0.35f);

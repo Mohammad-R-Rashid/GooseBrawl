@@ -14,7 +14,7 @@ namespace GooseBrawl
         public EggController Egg { get; private set; }
 
         Light m_Light;
-        float m_LightBase = 0.3f;
+        float m_LightBase = 0f;
         float m_Seed;
 
         public static NestController Create(MaterialLibrary mats)
@@ -45,9 +45,10 @@ namespace GooseBrawl
                 bowlMat.SetTextureScale("_BumpMap", new Vector2(2f, 0.5f));
                 MeshPart("Bowl", ProceduralAssets.NestBowlMesh("NestBowl", 0.27f, 0.16f, 1234), bowlMat, Vector3.zero);
 
-                // All woven strands as one draw call.
+                // All woven strands as one draw call. They do not cast shadows: dozens of thin twig shadows
+                // on the egg read as noise, and the bowl already grounds the nest on the floor.
                 var strands = ProceduralAssets.NestStrandsMesh("NestStrands", 70, 1234, out _);
-                MeshPart("Strands", strands, twigMat, Vector3.zero);
+                MeshPart("Strands", strands, twigMat, Vector3.zero, castShadows: false);
 
                 // A few down feathers inside the bowl.
                 var featherMat = ProceduralAssets.UnlitTransparent("NestDown_Runtime", new Color(1f, 1f, 0.98f, 0.92f), ProceduralAssets.FeatherTexture());
@@ -69,7 +70,8 @@ namespace GooseBrawl
 
             Egg = EggController.Create(mats, transform);
 
-            // Warm light on the egg (no visible source).
+            // Optional warm light on the egg. Off by default: a virtual hot spot on a real-lit egg looked wrong on the phone.
+            if (m_LightBase <= 0f) return;
             var lightGo = new GameObject("NestLight");
             lightGo.transform.SetParent(transform, false);
             lightGo.transform.localPosition = new Vector3(0.05f, 0.42f, -0.06f);
@@ -95,7 +97,7 @@ namespace GooseBrawl
             return clone;
         }
 
-        void MeshPart(string name, Mesh mesh, Material mat, Vector3 localPos)
+        void MeshPart(string name, Mesh mesh, Material mat, Vector3 localPos, bool castShadows = true)
         {
             var go = new GameObject(name);
             go.transform.SetParent(transform, false);
@@ -104,7 +106,7 @@ namespace GooseBrawl
             mf.sharedMesh = mesh;
             var mr = go.AddComponent<MeshRenderer>();
             mr.sharedMaterial = mat;
-            mr.shadowCastingMode = ShadowCastingMode.On;
+            mr.shadowCastingMode = castShadows ? ShadowCastingMode.On : ShadowCastingMode.Off;
             mr.receiveShadows = true;
         }
 

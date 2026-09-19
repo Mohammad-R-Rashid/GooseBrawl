@@ -98,7 +98,7 @@ namespace GooseBrawl
                 m_NextBeat = Time.unscaledTime + 1f / rate;
                 HeartbeatCount++;
                 if (mgr.Audio != null) mgr.Audio.PlayHeartbeat(heartbeatVolume * Mathf.Lerp(0.35f, 1f, heartLevel) * master * scale, Mathf.Lerp(0.95f, 1.15f, heartLevel));
-                if (mgr.Haptics != null) mgr.Haptics.Play(HapticsService.Pattern.Heartbeat, Mathf.Lerp(0.3f, 1f, heartLevel));
+                if (mgr.Haptics != null) mgr.Haptics.Play(HapticsService.Pattern.Heartbeat, Mathf.Lerp(0.25f, 0.75f, heartLevel));
             }
 
             // Breathing: builds with time on the run, panics with danger.

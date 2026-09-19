@@ -235,17 +235,18 @@ static CHHapticPattern *BuildAuthoredPattern(int id, float scale)
                                @[IntensityCurve(@[CurvePoint(0.00, 0.2f), CurvePoint(0.45, 0.8f)])],
                                @"LungeWindup");
 
-        case 3: // LungeLaunch: hard hit with a short tail
-            return MakePattern(@[TransientEvent(0.0, 1.0f * scale, 0.9f),
-                                 ContinuousEvent(0.0, 0.18, 0.5f * scale, 0.6f)],
+        case 3: // LungeLaunch: hard hit with a short tail (a notch below the Catch so the peck stays unique)
+            return MakePattern(@[TransientEvent(0.0, 0.85f * scale, 0.75f),
+                                 ContinuousEvent(0.0, 0.18, 0.45f * scale, 0.6f)],
                                @[], @"LungeLaunch");
 
-        case 4: // Catch: double hit + rumble that dies out. The curve holds at 1 through the
-                // second hit so only the rumble fades (0.7 -> 0).
-            return MakePattern(@[TransientEvent(0.00, 1.0f * scale, 0.7f),
-                                 TransientEvent(0.06, 0.8f * scale, 0.5f),
-                                 ContinuousEvent(0.0, 0.55, 0.7f * scale, 0.15f)],
-                               @[IntensityCurve(@[CurvePoint(0.00, 1.0f), CurvePoint(0.06, 1.0f), CurvePoint(0.55, 0.0f)])],
+        case 4: // Catch: three hard beak strikes, then a long heavy rumble that nothing else in the game uses.
+                // The intensity curve holds at 1 through the strikes so only the tail fades (1.0 -> 0.15 over 1.3 s).
+            return MakePattern(@[TransientEvent(0.00, 1.0f * scale, 1.0f),
+                                 TransientEvent(0.09, 1.0f * scale, 1.0f),
+                                 TransientEvent(0.18, 1.0f * scale, 0.95f),
+                                 ContinuousEvent(0.18, 1.30, 1.0f * scale, 0.05f)],
+                               @[IntensityCurve(@[CurvePoint(0.00, 1.0f), CurvePoint(0.22, 1.0f), CurvePoint(0.70, 0.75f), CurvePoint(1.48, 0.15f)])],
                                @"Catch");
 
         case 5: // EggCrack: sharp crack + three tiny splinters
