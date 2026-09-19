@@ -422,12 +422,71 @@ void GooseHaptics_Pattern(int id, float intensity)
     });
 }
 
+// ---- Hold: a long continuous vibration whose intensity/sharpness are steered every frame ----
+// Used while the egg is carried. The event runs at full intensity and the dynamic intensity
+// control (multiplicative) sets the level; sharpness control is additive around the event's 0.3.
+static id<CHHapticAdvancedPatternPlayer> g_HoldPlayer = nil;
+static const float kHoldBaseSharpness = 0.3f;
+
+void GooseHaptics_HoldStop(void)
+{
+    RunOnMain(^{
+        if (g_HoldPlayer == nil) return;
+        NSError *error = nil;
+        [g_HoldPlayer stopAtTime:CHHapticTimeImmediate error:&error];
+        g_HoldPlayer = nil;
+    });
+}
+
+void GooseHaptics_HoldStart(float intensity, float sharpness)
+{
+    float i = ClampUnit(intensity);
+    float sh = ClampUnit(sharpness);
+    RunOnMain(^{
+        if (!EnsureRunning()) return;
+        if (g_HoldPlayer != nil) {
+            [g_HoldPlayer stopAtTime:CHHapticTimeImmediate error:nil];
+            g_HoldPlayer = nil;
+        }
+        NSError *error = nil;
+        CHHapticEvent *event = ContinuousEvent(0.0, 30.0, 1.0f, kHoldBaseSharpness);
+        CHHapticPattern *pattern = [[CHHapticPattern alloc] initWithEvents:@[event] parameters:@[] error:&error];
+        if (pattern == nil) { NSLog(@"[GooseHaptics] Hold pattern failed: %@", error); return; }
+        id<CHHapticAdvancedPatternPlayer> player = [g_Engine createAdvancedPlayerWithPattern:pattern error:&error];
+        if (player == nil) { NSLog(@"[GooseHaptics] Hold player failed: %@", error); return; }
+        player.loopEnabled = YES;
+        NSArray *params = @[[[CHHapticDynamicParameter alloc] initWithParameterID:CHHapticDynamicParameterIDHapticIntensityControl value:i relativeTime:0],
+                            [[CHHapticDynamicParameter alloc] initWithParameterID:CHHapticDynamicParameterIDHapticSharpnessControl value:(sh - kHoldBaseSharpness) relativeTime:0]];
+        [player sendParameters:params atTime:CHHapticTimeImmediate error:nil];
+        if (![player startAtTime:CHHapticTimeImmediate error:&error]) {
+            g_EngineRunning = NO;
+            if (EnsureRunning() && [player startAtTime:CHHapticTimeImmediate error:&error]) { g_HoldPlayer = player; return; }
+            NSLog(@"[GooseHaptics] Hold start failed: %@", error);
+            return;
+        }
+        g_HoldPlayer = player;
+    });
+}
+
+void GooseHaptics_HoldUpdate(float intensity, float sharpness)
+{
+    float i = ClampUnit(intensity);
+    float sh = ClampUnit(sharpness);
+    RunOnMain(^{
+        if (g_HoldPlayer == nil) return;
+        NSArray *params = @[[[CHHapticDynamicParameter alloc] initWithParameterID:CHHapticDynamicParameterIDHapticIntensityControl value:i relativeTime:0],
+                            [[CHHapticDynamicParameter alloc] initWithParameterID:CHHapticDynamicParameterIDHapticSharpnessControl value:(sh - kHoldBaseSharpness) relativeTime:0]];
+        [g_HoldPlayer sendParameters:params atTime:CHHapticTimeImmediate error:nil];
+    });
+}
+
 // paused != 0: stop the engine (app going to background). paused == 0: start it again.
 void GooseHaptics_SetPaused(int paused)
 {
     RunOnMain(^{
         if (g_Engine == nil) return; // never create an engine just to pause it
         if (paused != 0) {
+            if (g_HoldPlayer != nil) { [g_HoldPlayer stopAtTime:CHHapticTimeImmediate error:nil]; g_HoldPlayer = nil; }
             g_EngineRunning = NO;
             [g_Engine stopWithCompletionHandler:^(NSError * _Nullable error) {
                 if (error != nil) NSLog(@"[GooseHaptics] Engine stop failed: %@", error);

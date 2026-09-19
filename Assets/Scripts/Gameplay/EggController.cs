@@ -43,7 +43,8 @@ namespace GooseBrawl
             shell.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
             r.sharedMaterial = shell;
             r.shadowCastingMode = ShadowCastingMode.On;
-            r.receiveShadows = true;
+            // Convex and smooth: shadow-map self-shadowing only adds a hard ring near the lit/unlit edge.
+            r.receiveShadows = false;
             var col = go.AddComponent<SphereCollider>();
             col.center = new Vector3(0f, EggHeight * 0.5f, 0f);
             col.radius = 0.28f; // generous tap target
@@ -92,6 +93,15 @@ namespace GooseBrawl
         /// <summary>The egg slips out of your hand, falls to the floor and cracks. Returns when it has landed.</summary>
         public IEnumerator DropAndCrack(Camera cam, float floorY, MaterialLibrary mats)
         {
+            Vector3 fwd = cam != null ? cam.transform.forward : Vector3.forward;
+            fwd.y = 0f;
+            if (fwd.sqrMagnitude < 1e-3f) fwd = Vector3.forward;
+            yield return DropAndCrack(cam, floorY, mats, fwd.normalized * 0.35f + Vector3.up * 0.15f);
+        }
+
+        /// <summary>Drop from wherever the egg is in the hand, with the velocity the carry physics handed it.</summary>
+        public IEnumerator DropAndCrack(Camera cam, float floorY, MaterialLibrary mats, Vector3 initialWorldVelocity)
+        {
             Tappable = false;
             m_Held = false;
             gameObject.SetActive(true);
@@ -99,23 +109,13 @@ namespace GooseBrawl
             fwd.y = 0f;
             if (fwd.sqrMagnitude < 1e-3f) fwd = Vector3.forward;
             fwd.Normalize();
-
-            // The slip: wobble in the hand, then it rolls off the fingers.
-            float t = 0f;
-            while (t < 0.45f && cam != null)
-            {
-                t += Time.deltaTime;
-                float k = t / 0.45f;
-                transform.localPosition = k_HandLocal + new Vector3(0.05f * k, -0.03f * k, 0.02f * k);
-                transform.localRotation = Quaternion.Euler(Mathf.Sin(t * 30f) * 12f * k, t * 60f, 35f * k);
-                yield return null;
-            }
             transform.SetParent(null, true);
             transform.localScale = m_BaseScale;
 
-            // Free fall with a little forward drift and tumbling.
+            // Free fall from the hand with the slide velocity it had, tumbling the way it left.
             Vector3 pos = transform.position;
-            Vector3 vel = fwd * 0.35f + Vector3.up * 0.15f;
+            Vector3 vel = initialWorldVelocity;
+            if (vel.sqrMagnitude < 0.01f) vel = fwd * 0.2f;
             float landY = floorY + EggHeight * 0.35f;
             float spin = Random.Range(360f, 720f);
             float safety = 0f;
@@ -323,6 +323,8 @@ namespace GooseBrawl
         float m_HeldTime;
         /// <summary>0 = steady hand, 1 = about to slip. Drives the wobble of the held egg (set by the carry phase).</summary>
         public float HandShake { get; set; }
+        /// <summary>Where the egg has slid to in the hand (camera-local metres), from the carry physics.</summary>
+        public Vector3 HandOffset { get; set; }
 
         void LateUpdate()
         {
@@ -331,10 +333,12 @@ namespace GooseBrawl
             float shake = Mathf.Clamp01(HandShake);
             float f = 3f + 9f * shake;
             // Gentle bob in the hand so it reads as "held", plus a growing wobble the closer it is to slipping.
-            Vector3 jitter = new Vector3(Mathf.Sin(m_HeldTime * f * 1.3f), Mathf.Sin(m_HeldTime * f), Mathf.Cos(m_HeldTime * f * 0.7f)) * (0.004f + 0.02f * shake);
-            transform.localPosition = k_HandLocal + new Vector3(0f, 0.008f * Mathf.Sin(m_HeldTime * 3f), 0f) + jitter;
-            float wobble = 4f + 22f * shake;
-            transform.localRotation = Quaternion.Euler(k_HeldTilt + new Vector3(Mathf.Sin(m_HeldTime * f) * wobble, Mathf.Sin(m_HeldTime * f * 0.6f) * wobble * 0.6f, Mathf.Cos(m_HeldTime * f * 1.1f) * wobble));
+            Vector3 jitter = new Vector3(Mathf.Sin(m_HeldTime * f * 1.3f), Mathf.Sin(m_HeldTime * f), Mathf.Cos(m_HeldTime * f * 0.7f)) * (0.003f + 0.012f * shake);
+            transform.localPosition = k_HandLocal + HandOffset + new Vector3(0f, 0.006f * Mathf.Sin(m_HeldTime * 3f), 0f) + jitter;
+            // The egg leans the way it is sliding, like a real object with inertia.
+            Vector3 lean = new Vector3(-HandOffset.z * 240f, 0f, HandOffset.x * 240f);
+            float wobble = 3f + 14f * shake;
+            transform.localRotation = Quaternion.Euler(k_HeldTilt + lean + new Vector3(Mathf.Sin(m_HeldTime * f) * wobble, Mathf.Sin(m_HeldTime * f * 0.6f) * wobble * 0.6f, Mathf.Cos(m_HeldTime * f * 1.1f) * wobble));
         }
     }
 }

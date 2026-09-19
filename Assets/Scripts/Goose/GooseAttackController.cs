@@ -137,6 +137,7 @@ namespace GooseBrawl
             {
                 mgr.Audio.PlayDash(goose.bodySource);
                 mgr.Danger.Shake(0.15f);
+                mgr.Haptics.Transient(0.35f + 0.08f * goose.Tier, 0.3f); // the push-off, felt more as the chase escalates
             }
             else
             {

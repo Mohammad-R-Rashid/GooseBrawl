@@ -119,7 +119,7 @@ namespace GooseBrawl
             float t = 0f;
             while (mgr.Nest.Egg.CrackedEgg == null && t < 12f) { t += Time.deltaTime; yield return null; }
             mgr.Mock.AutoMove = Vector2.zero;
-            Check(t < 6f, "Grip drained from movement within " + t.ToString("F1") + " s");
+            Check(t < 6f, "Egg slipped from the player's movement within " + t.ToString("F1") + " s");
             // Back to the original spot and facing so the entrance and the head-start run are reproducible.
             mgr.Mock.TeleportTo(playerBefore, fwdBefore);
             // Wait for the goose to exist and start its fly-in, then look away to prove the Glare waits for us.

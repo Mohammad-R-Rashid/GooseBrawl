@@ -148,6 +148,11 @@ namespace GooseBrawl
             yield return Egg.DropAndCrack(cam, floorY, mats);
         }
 
+        public IEnumerator DropEgg(Camera cam, float floorY, MaterialLibrary mats, Vector3 initialWorldVelocity)
+        {
+            yield return Egg.DropAndCrack(cam, floorY, mats, initialWorldVelocity);
+        }
+
         public void ResetEgg()
         {
             gameObject.SetActive(true);

@@ -470,7 +470,7 @@ namespace GooseBrawl
                 m_Mgr.Audio.PlayFootstep(bodySource, intensity);
                 Visual.FootDust();
                 if (DistanceToPlayer < 3f)
-                    m_Mgr.Haptics.Play(HapticsService.Pattern.Footstep, Mathf.Clamp01(1f - DistanceToPlayer / 3f) * (0.35f + 0.65f * intensity));
+                    m_Mgr.Haptics.Play(HapticsService.Pattern.Footstep, Mathf.Clamp01(1f - DistanceToPlayer / 3f) * (0.35f + 0.65f * intensity) * (0.7f + 0.1f * Tier));
             }
 
             UpdateHonks();
@@ -613,7 +613,7 @@ namespace GooseBrawl
             m_Mgr.UI.ShowHonk(transform.position, text, length + 0.25f, scale);
             m_Mgr.UI.PulseLocator();
             if (Danger01 > 0.5f || angry)
-                m_Mgr.Haptics.Continuous(Mathf.Clamp(length, 0.12f, 0.6f), Mathf.Lerp(0.25f, 0.8f, Danger01), 0.6f);
+                m_Mgr.Haptics.Continuous(Mathf.Clamp(length * (1f + 0.15f * Tier), 0.12f, 0.8f), Mathf.Lerp(0.25f, 0.8f, Danger01) * (0.75f + 0.09f * Tier), 0.5f + 0.1f * Tier);
         }
 
         void EnterRage()

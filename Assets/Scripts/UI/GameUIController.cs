@@ -553,6 +553,7 @@ namespace GooseBrawl
 
         public void ShowMessage(string text, float duration, Color color)
         {
+            foreach (var b in m_Bubbles) if (b.Rect.gameObject.activeSelf) b.Rect.gameObject.SetActive(false);
             m_Message.Text = text;
             m_Message.Color = color;
             m_Message.SetActive(true);
@@ -570,6 +571,8 @@ namespace GooseBrawl
             Vector3 vp = cam.WorldToViewportPoint(worldPos + Vector3.up * 0.55f);
             // Only when the goose is actually on screen; off-screen honks are carried by the locator pulse and the sound.
             if (!(vp.z > 0f && vp.x > 0.1f && vp.x < 0.9f && vp.y > 0.15f && vp.y < 0.85f)) return;
+            // Never two texts at once: a centre message wins over the bubble.
+            if (m_Message.GameObject != null && m_Message.GameObject.activeSelf) return;
             Vector2 pos = new Vector2((vp.x - 0.5f) * size.x, (vp.y - 0.5f) * size.y + 110f);
 
             // One bubble at a time: a fading previous honk would ghost behind the new one.
@@ -718,7 +721,8 @@ namespace GooseBrawl
                 m_DangerLabel.Text = where;
                 m_DangerLabel.Color = m_DangerLevel > 0.7f ? UITheme.Danger : UITheme.Ink;
 
-                bool turnAround = m_DangerLevel > 0.5f && m_GooseBehind && !m_GooseVisible && (mgr == null || !mgr.IsPaused);
+                bool messageUp = m_Message.GameObject != null && m_Message.GameObject.activeSelf;
+                bool turnAround = m_DangerLevel > 0.5f && m_GooseBehind && !m_GooseVisible && !messageUp && (mgr == null || !mgr.IsPaused);
                 if (m_TurnAround.GameObject.activeSelf != turnAround) m_TurnAround.SetActive(turnAround);
                 if (turnAround) m_TurnAround.Alpha = 0.8f + 0.2f * Mathf.Sin(t * 8f);
             }

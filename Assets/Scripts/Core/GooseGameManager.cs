@@ -38,13 +38,18 @@ namespace GooseBrawl
         [Tooltip("Repeat rounds play the steal beat this much faster (and it can be tapped through).")]
         public float repeatBeatSpeed = 0.65f;
 
-        [Header("Carry (the egg slips because of how you move)")]
-        [Tooltip("Seconds the grip lasts if you stand perfectly still.")]
-        public float gripStillSeconds = 7f;
-        [Tooltip("Extra grip drained per second at 1 m/s of phone movement.")]
-        public float gripDrainPerMeterPerSecond = 0.32f;
-        [Tooltip("Extra grip drained per second at 90 deg/s of phone rotation.")]
-        public float gripDrainPerTurn = 0.22f;
+        [Header("Carry (the egg has inertia in your hand: move or tilt the phone and it slides off)")]
+        [Tooltip("How far (m) the egg can slide in the hand before it rolls off.")]
+        public float palmRadius = 0.06f;
+        [Tooltip("Spring pulling the egg back to the palm centre (1/s^2) and its damping (1/s).")]
+        public float palmSpring = 40f;
+        public float palmDamping = 7f;
+        [Tooltip("How much phone acceleration (m/s^2) pushes the egg.")]
+        public float accelerationGain = 1f;
+        [Tooltip("How much tilting the phone lets gravity pull the egg sideways.")]
+        public float tiltGain = 1f;
+        [Tooltip("Standing perfectly still: after this many seconds the egg starts creeping off anyway.")]
+        public float stillCreepAfter = 10f;
 
         public GooseGameState State { get; private set; } = GooseGameState.Boot;
         public event Action<GooseGameState> StateChanged;
@@ -335,7 +340,7 @@ namespace GooseBrawl
             UI.ShowMessage("NO NO NO", 1.6f * speed);
             Time.timeScale = 0.55f;
             if (Look != null) Look.SetSlowMotion(true);
-            yield return Nest.DropEgg(Player.Cam, FloorY, Materials);
+            yield return Nest.DropEgg(Player.Cam, FloorY, Materials, m_LastCarryVelocity);
             Time.timeScale = 1f;
             if (Look != null) { Look.SetSlowMotion(false); Look.Impact(0.3f); }
             Audio.PlayEggCrack(Nest.Egg.CrackPosition);
@@ -352,52 +357,92 @@ namespace GooseBrawl
             SpawnGoose();
         }
 
+        /// <summary>
+        /// The egg is a mass on a springy palm. Phone acceleration (walking, stops, turns) and tilt push it
+        /// around; past the palm radius it rolls off with the velocity it has. Standing perfectly still keeps
+        /// it safe until the creep kicks in. A hold vibration follows how close it is to slipping.
+        /// </summary>
         IEnumerator CarryRoutine()
         {
             var cam = Player.Cam;
-            float grip = 1f;
-            float still = 0f;
-            bool warned = false, hinted = false;
-            float repeat = RoundsThisSession > 0 ? 1.7f : 1f;
-            Vector3 lastPos = cam != null ? cam.transform.position : Vector3.zero;
-            Quaternion lastRot = cam != null ? cam.transform.rotation : Quaternion.identity;
             var egg = Nest != null ? Nest.Egg : null;
-            while (grip > 0f)
+            Vector3 offset = Vector3.zero, offVel = Vector3.zero;   // camera-local, metres
+            Vector3 prevPos = cam != null ? cam.transform.position : Vector3.zero;
+            Vector3 velEma = Vector3.zero, prevVelEma = Vector3.zero, accEma = Vector3.zero;
+            float still = 0f, elapsed = 0f;
+            bool hinted = false, warned = false;
+            Vector3 creepDir = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f) * Vector3.forward;
+            float repeat = RoundsThisSession > 0 ? 1.6f : 1f;
+            m_LastCarryVelocity = Vector3.zero;
+            Haptics.HoldStart(0.14f, 0.25f);
+
+            while (true)
             {
                 if (m_SkipRequested) break;
                 float dt = Time.deltaTime;
-                if (dt <= 0f) { yield return null; continue; }
-                float speed = 0f, turn = 0f;
-                if (cam != null)
+                if (dt <= 0f || cam == null) { yield return null; continue; }
+                elapsed += dt;
+
+                // Phone motion: velocity (smoothed against pose jitter) and its change.
+                Vector3 pos = cam.transform.position;
+                Vector3 vel = (pos - prevPos) / dt;
+                prevPos = pos;
+                velEma = Vector3.Lerp(velEma, vel, 1f - Mathf.Exp(-dt / 0.08f));
+                Vector3 acc = (velEma - prevVelEma) / dt;
+                prevVelEma = velEma;
+                accEma = Vector3.Lerp(accEma, acc, 1f - Mathf.Exp(-dt / 0.06f));
+                Vector3 accLocal = cam.transform.InverseTransformDirection(accEma);
+                accLocal.y = 0f;
+                if (accLocal.magnitude < 0.4f) accLocal = Vector3.zero; // tracking noise
+
+                // Tilt: gravity across the palm when the phone pitches or rolls away from level.
+                Vector3 downLocal = cam.transform.InverseTransformDirection(Vector3.down);
+                Vector3 tiltPull = new Vector3(downLocal.x, 0f, downLocal.z) * 9.81f;
+                if (tiltPull.magnitude < 1.2f) tiltPull = Vector3.zero;
+
+                // Creep when the player refuses to move.
+                if (velEma.magnitude < 0.06f) still += dt; else still = 0f;
+                Vector3 creep = elapsed > stillCreepAfter / repeat ? creepDir * (0.5f + 0.35f * (elapsed - stillCreepAfter / repeat)) : Vector3.zero;
+
+                Vector3 force = -accLocal * accelerationGain * repeat + tiltPull * tiltGain * repeat + creep - offset * palmSpring - offVel * palmDamping;
+                offVel += force * dt;
+                offset += offVel * dt;
+                float w = Mathf.Clamp01(offset.magnitude / palmRadius);
+
+                if (egg != null)
                 {
-                    Vector3 p = cam.transform.position;
-                    Quaternion r = cam.transform.rotation;
-                    speed = Vector3.Distance(p, lastPos) / dt;
-                    turn = Quaternion.Angle(r, lastRot) / dt;
-                    lastPos = p;
-                    lastRot = r;
+                    egg.HandOffset = offset;
+                    egg.HandShake = w;
                 }
-                // Ignore tracking jitter, count real movement.
-                float motion = Mathf.Clamp01((speed - 0.08f) / 1.2f) * gripDrainPerMeterPerSecond + Mathf.Clamp01((turn - 8f) / 90f) * gripDrainPerTurn;
-                grip -= dt * (repeat / Mathf.Max(1f, gripStillSeconds) + motion * repeat);
-                if (egg != null) egg.HandShake = Mathf.Clamp01(motion * 1.5f + (1f - grip) * 0.7f);
-                UI.SetGrip(grip);
-                if (speed < 0.06f && turn < 10f) still += dt; else still = 0f;
-                if (!hinted && still > 2.5f)
+                UI.SetGrip(1f - w);
+                Haptics.HoldUpdate(0.12f + 0.7f * w * w, 0.2f + 0.6f * w);
+
+                if (!hinted && still > 3f && elapsed > 3f)
                 {
                     hinted = true;
                     UI.ShowMessage("GO ON. WALK.", 1.1f, UITheme.Yolk);
                 }
-                if (!warned && grip < 0.4f)
+                if (!warned && w > 0.6f)
                 {
                     warned = true;
-                    Haptics.Transient(0.45f, 0.35f);
+                    Haptics.Transient(0.45f, 0.5f);
+                }
+                if (w < 0.4f) warned = false;
+
+                if (offset.magnitude > palmRadius)
+                {
+                    // It rolls off with the velocity it had in the hand plus the hand's own motion.
+                    m_LastCarryVelocity = velEma + cam.transform.TransformDirection(offVel) + Vector3.down * 0.15f;
+                    break;
                 }
                 yield return null;
             }
-            if (egg != null) egg.HandShake = 1f;
-            Haptics.Transient(0.6f, 0.5f);
+            Haptics.HoldStop();
+            Haptics.Transient(0.8f, 0.9f); // the slip
+            if (egg != null) { egg.HandShake = 1f; }
         }
+
+        Vector3 m_LastCarryVelocity;
 
         void SpawnGoose()
         {

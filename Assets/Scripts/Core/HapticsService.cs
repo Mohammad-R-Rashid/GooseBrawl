@@ -86,6 +86,9 @@ namespace GooseBrawl
         [DllImport("__Internal")] static extern void GooseHaptics_Continuous(float duration, float intensity, float sharpness);
         [DllImport("__Internal")] static extern void GooseHaptics_Pattern(int id, float intensity);
         [DllImport("__Internal")] static extern void GooseHaptics_SetPaused(int paused);
+        [DllImport("__Internal")] static extern void GooseHaptics_HoldStart(float intensity, float sharpness);
+        [DllImport("__Internal")] static extern void GooseHaptics_HoldUpdate(float intensity, float sharpness);
+        [DllImport("__Internal")] static extern void GooseHaptics_HoldStop();
 #endif
 
         void Awake()
@@ -168,6 +171,56 @@ namespace GooseBrawl
             if (!Accept(false)) return;
             if (CoreHapticsAvailable && TryCoreContinuous(duration, intensity, sharpness)) return;
             UiKitImpact((int)StrengthFromIntensity(intensity));
+        }
+
+        // ------------------------------------------------------------------------------------
+        // Hold: a continuous vibration that stays on and is steered every frame (carrying the egg).
+        // ------------------------------------------------------------------------------------
+        public bool Holding { get; private set; }
+        float m_NextHoldUpdate;
+
+        public void HoldStart(float intensity, float sharpness)
+        {
+            if (!hapticsEnabled) return;
+            PulseCount++;
+            Holding = true;
+            m_NextHoldUpdate = 0f;
+#if UNITY_IOS && !UNITY_EDITOR
+            if (CoreHapticsAvailable)
+            {
+                try { GooseHaptics_HoldStart(Mathf.Clamp01(intensity), Mathf.Clamp01(sharpness)); return; }
+                catch (Exception e) { DisableCoreHaptics(e); }
+            }
+            UiKitImpact(0);
+#endif
+        }
+
+        /// <summary>Steer the hold vibration (throttled to 20 Hz). No-op when not holding.</summary>
+        public void HoldUpdate(float intensity, float sharpness)
+        {
+            if (!Holding || !hapticsEnabled) return;
+            if (Time.unscaledTime < m_NextHoldUpdate) return;
+            m_NextHoldUpdate = Time.unscaledTime + 0.05f;
+#if UNITY_IOS && !UNITY_EDITOR
+            if (CoreHapticsAvailable)
+            {
+                try { GooseHaptics_HoldUpdate(Mathf.Clamp01(intensity), Mathf.Clamp01(sharpness)); }
+                catch (Exception e) { DisableCoreHaptics(e); }
+            }
+#endif
+        }
+
+        public void HoldStop()
+        {
+            if (!Holding) return;
+            Holding = false;
+#if UNITY_IOS && !UNITY_EDITOR
+            if (CoreHapticsAvailable)
+            {
+                try { GooseHaptics_HoldStop(); }
+                catch (Exception e) { DisableCoreHaptics(e); }
+            }
+#endif
         }
 
         /// <summary>
