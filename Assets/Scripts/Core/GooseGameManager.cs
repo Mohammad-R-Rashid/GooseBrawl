@@ -40,12 +40,12 @@ namespace GooseBrawl
 
         [Header("Carry (the egg has inertia in your hand: move or tilt the phone and it slides off)")]
         [Tooltip("How far (m) the egg can slide in the hand before it rolls off.")]
-        public float palmRadius = 0.06f;
+        public float palmRadius = 0.08f;
         [Tooltip("Spring pulling the egg back to the palm centre (1/s^2) and its damping (1/s).")]
         public float palmSpring = 40f;
-        public float palmDamping = 7f;
+        public float palmDamping = 8f;
         [Tooltip("How much phone acceleration (m/s^2) pushes the egg.")]
-        public float accelerationGain = 1f;
+        public float accelerationGain = 0.75f;
         [Tooltip("How much tilting the phone lets gravity pull the egg sideways.")]
         public float tiltGain = 1f;
         [Tooltip("Standing perfectly still: after this many seconds the egg starts creeping off anyway.")]
@@ -393,12 +393,12 @@ namespace GooseBrawl
                 accEma = Vector3.Lerp(accEma, acc, 1f - Mathf.Exp(-dt / 0.06f));
                 Vector3 accLocal = cam.transform.InverseTransformDirection(accEma);
                 accLocal.y = 0f;
-                if (accLocal.magnitude < 0.4f) accLocal = Vector3.zero; // tracking noise
+                if (accLocal.magnitude < 0.6f) accLocal = Vector3.zero; // tracking noise
 
                 // Tilt: gravity across the palm when the phone pitches or rolls away from level.
                 Vector3 downLocal = cam.transform.InverseTransformDirection(Vector3.down);
                 Vector3 tiltPull = new Vector3(downLocal.x, 0f, downLocal.z) * 9.81f;
-                if (tiltPull.magnitude < 1.2f) tiltPull = Vector3.zero;
+                if (tiltPull.magnitude < 1.8f) tiltPull = Vector3.zero; // small tilts (under ~10 deg) are free
 
                 // Creep when the player refuses to move.
                 if (velEma.magnitude < 0.06f) still += dt; else still = 0f;
