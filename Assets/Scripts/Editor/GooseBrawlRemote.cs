@@ -42,7 +42,7 @@ namespace GooseBrawl.Editor
             }
             if (string.IsNullOrEmpty(cmd)) return;
             // Commands that need edit mode: leave play mode first and re-queue.
-            if ((cmd == "play" || cmd == "smoke" || cmd == "smokeonline" || cmd == "bench" || cmd == "icon" || cmd == "setup" || cmd == "build") && EditorApplication.isPlaying)
+            if ((cmd == "play" || cmd == "smoke" || cmd == "smokeonline" || cmd == "bench" || cmd == "icon" || cmd == "setup" || cmd == "build" || cmd == "tune") && EditorApplication.isPlaying)
             {
                 EditorApplication.ExitPlaymode();
                 File.WriteAllText(CommandPath, cmd);
@@ -122,6 +122,9 @@ namespace GooseBrawl.Editor
                 case "settings":
                     GooseBrawlSetup.ConfigurePlayerSettings();
                     AssetDatabase.SaveAssets();
+                    break;
+                case "tune":
+                    GooseBrawlTune.Apply();
                     break;
             }
         }

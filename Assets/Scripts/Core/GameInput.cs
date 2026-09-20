@@ -146,6 +146,37 @@ namespace GooseBrawl
 #endif
         }
 
+        /// <summary>Editor mock: N shouts the goose's name, M shouts "sorry" (speech reactions), P = photo mode / shutter.</summary>
+        public static bool NamePressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            return kb != null && kb.nKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.N);
+#endif
+        }
+
+        public static bool SorryPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            return kb != null && kb.mKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.M);
+#endif
+        }
+
+        public static bool PhotoPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            return kb != null && kb.pKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.P);
+#endif
+        }
+
         public static bool RestartPressed()
         {
 #if ENABLE_INPUT_SYSTEM

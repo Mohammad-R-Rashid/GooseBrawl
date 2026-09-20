@@ -365,8 +365,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GooseBrawl.GooseMovement
   turnSpeedDeg: 420
-  acceleration: 5
-  deceleration: 9
+  acceleration: 8
+  deceleration: 10
   floorSnapTolerance: 0.25
   environmentMask:
     serializedVersion: 2
@@ -528,14 +528,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 68fbd2741eee146ee86211c301813a58, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GooseBrawl.GooseChaseController
-  walkSpeed: 0.9
-  runSpeed: 1.1
+  walkSpeed: 0.95
+  runSpeed: 1.2
   maxChaseSpeed: 1.6
-  timeToMaxSpeed: 40
-  walkPhaseDuration: 3
+  timeToMaxSpeed: 28
+  walkPhaseDuration: 2
   farCatchUpDistance: 5
   farCatchUpBoost: 1.25
-  nearCapSpeed: 1.3
+  nearCapSpeed: 1.35
   catchDistance: 0.8
   lungeTriggerDistance: 1.7
   farDistance: 6
@@ -547,14 +547,14 @@ MonoBehaviour:
   glareMaxDuration: 4.5
   gracePeriod: 2
   tierStartTimes:
-  - 8
-  - 18
-  - 30
+  - 6
+  - 14
+  - 24
   dashCooldownByTier:
   - 0
-  - 6.5
-  - 4.5
-  - 3
+  - 5.5
+  - 4
+  - 2.8
   dashMinDistance: 2.4
   dashMaxDistance: 6.5
   dashStopDistance: 1.8
@@ -577,6 +577,9 @@ MonoBehaviour:
   voiceSource: {fileID: 6701042005107024571}
   bodySource: {fileID: 594733947099395369}
   footstepInterval: 0.32
+  eatSeconds: 2.8
+  breadReach: 0.38
+  flinchSeconds: 1.2
 --- !u!1 &6897599758188997178
 GameObject:
   m_ObjectHideFlags: 0

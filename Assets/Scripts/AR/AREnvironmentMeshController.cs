@@ -17,8 +17,10 @@ namespace GooseBrawl
         public const string EnvironmentLayerName = "AREnvironment";
         static readonly int k_BaseColor = Shader.PropertyToID("_BaseColor");
 
-        [Tooltip("Draw the detected planes (only during scanning / placement).")]
-        public bool visualizePlanes = true;
+        [Tooltip("Draw the detected planes (the dot grid) while scanning / placing. Off: the scan pill is enough and the plane renderers never draw.")]
+        public bool showPlaneDots = false;
+        [Tooltip("Runtime state: whether the plane visuals are currently wanted (SetPlaneVisualization); gated by showPlaneDots.")]
+        public bool visualizePlanes = false;
         public float planePollInterval = 0.5f;
         public float planeFadeSpeed = 1.8f;
 
@@ -157,7 +159,7 @@ namespace GooseBrawl
 
         public void SetPlaneVisualization(bool visible)
         {
-            visualizePlanes = visible;
+            visualizePlanes = visible && showPlaneDots;
             m_NextPlanePoll = 0f;
         }
     }

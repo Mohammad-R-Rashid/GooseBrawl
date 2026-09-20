@@ -5,8 +5,9 @@ You scan your floor, place a goose nest, steal the egg, and a ridiculous goose c
 your real room. The goose lives in AR world space: it is behind you, you hear it and feel it, and if
 you turn the phone around it is right there, casting a shadow on your floor.
 
-Everything is one scene, one game mode, no server, no accounts. The only persistent data is the best
-score / best time, games played and the sound / haptics toggles in `PlayerPrefs`.
+Everything is one scene, one game mode, no accounts. The only persistent data is the best score / best time, games
+played, your name for the Goose Board and the sound / haptics toggles in `PlayerPrefs`. The only server is the goose's
+brain (a Cloudflare Worker), which also hosts the booth leaderboard; the game plays fully offline without it.
 
 (The code, the scene and the bundle id still say Goose Brawl / eggsnatcher on purpose: renaming them would wipe
 saved best times on installed phones. Only the user-visible name changed.)
@@ -74,6 +75,7 @@ on wifi:
 | intro | it lands and glares | first words, pre-voiced during the steal beat ("HERE COMES KEVIN.") |
 | taunt10 | 10 s survived | a taunt |
 | yell | you shout at the phone | it flinches (RUDE.), backs off, then dashes back at you; it answers what you actually said |
+| name | you shout its NAME ("KEVIN!") | on-device speech (Apple, offline) hears the name: it freezes, snaps its head to you, one dramatic honk, "...WHAT.", then a dash. "SORRY" / "PLEASE" / "STOP" get "APOLOGY NOT ACCEPTED." |
 | bread | you tap the bread button (once per round) | a roll flies past the goose, it detours and eats it (OM NOM.), comes back angrier |
 | dodge | a lunge missed and you moved >= 0.35 m | 80 ms hit-stop, DODGED!, feathers; DODGES on the HUD and the card |
 | rage | 30 s | RAGE MODE + a line |
@@ -81,12 +83,12 @@ on wifi:
 | outlasted | 45 s survived (`outlastSeconds`) | THE GOOSE HAS GIVEN UP: it flops and sulks, the win card, a sore-loser line |
 
 The goose has a name and a title (KEVIN, DESTROYER OF BREAKFAST; the brain invents new ones) and holds a grudge: rounds it
-won are counted across launches (`GoosePersona`, mirrored in PlayerPrefs), round 2 opens with "KEVIN IS BACK." and the
+won are counted across launches (`GoosePersona`, mirrored in PlayerPrefs), round 2 opens with "THIS MEANS WAR." and the
 results card says STILL MAD. / VERY MAD. Escalation is split in two: **tier** (time: dashes, lunges, rage) and **anger**
 (tier + what you did to it: animation, honks, feathers). Bread and shouts raise anger and grant the goose one immediate
 dash; they never move the lunge schedule, so the demo stays winnable.
 
-The bread button is a round dark-glass control at the bottom right showing the real bread roll (the same lathe mesh the
+The bread button is a round dark-glass control at the bottom right showing the real slice of toast (the same extruded mesh the
 player throws, rendered by a tiny extra camera on the `UIBread` layer into a transparent texture, slowly turning). It sits
 quiet while the goose is far and grows with a soft yolk ring pulse as the goose closes in: a save-me, not a nag. One throw
 per round (`GooseGameManager.breadPerRound`).
@@ -136,6 +138,9 @@ first-person mock camera replace AR Foundation.
 | R | Run again (on game over) |
 | B | Throw bread (during the chase, once per round) |
 | Y | Simulate a shout (the Editor does not listen on the Mac microphone unless `YellDetector.listenInEditor`) |
+| N | Simulate shouting the goose's name (the speech reaction) |
+| M | Simulate shouting "sorry" |
+| P | On the results card: photo mode; in photo mode: the shutter (PNG lands in `Library/ShareShots/`) |
 
 The mock exercises the whole loop: scanning, placement, egg theft, fly-in, glare, chase, flap-dashes, obstacle
 avoidance, honks, haptics (counted), scoring, lunge and game over. `GooseBrawlRemote` (Editor only) polls
@@ -145,10 +150,10 @@ to `Library/IconShots/`), `stop`, `setup`, `validate`, `save`, `build`, `setting
 the smoke test also saves screenshots of every beat to `Library/SmokeShots/`. With `wrangler dev` running, plain `play` also
 uses the local brain (the client probes localhost:8787/health in the Editor).
 
-## Sponsor integrations (one architecture, four tracks)
+## Sponsor integrations (one architecture, five tracks)
 
 Per-sponsor architecture documents with judges' FAQs: [docs/sponsors/](docs/sponsors/README.md)
-(Cloudflare, ElevenLabs, Sentry, OpenAI).
+(Cloudflare, ElevenLabs, Sentry, OpenAI, Elastic).
 
 ```
  iPhone (Unity)                              Cloudflare Worker "goose-brain"                  Third parties
@@ -160,11 +165,17 @@ Per-sponsor architecture documents with judges' FAQs: [docs/sponsors/](docs/spon
    subtitle pill, honk suppression)           GET /health (Sentry Uptime target)                   wav_22050, a designed goose voice)
  YellDetector (mic loudness, local flinch)    @sentry/cloudflare: errors, tracing continued
  PerfProbe / PerfBenchmark -> Sentry Unity      from the phone, logs, gen_ai spans (AI agent monitoring)
+ PerfProbe / PerfBenchmark -> Sentry Unity      from the phone, logs, gen_ai spans (AI agent monitoring)
+ GooseTelemetryStream -- POST /telemetry -->  bulk -> Elasticsearch (5 Hz AR sensor stream)      Elastic Cloud Serverless: goosed-shouts
+   (5 Hz pose/speed/fps, every 3 s)           session: ES|QL case file; yell: hybrid shout search    (Jina semantic_text), -lines, -runs,
+                                              Agent Builder agent in the background; Workflow acts   -telemetry (TSDS); Agent Builder; Workflows
 ```
 
 - **Cloudflare (Best Agent with a Brain)**: `backend/goose-brain` is a Cloudflare Agent per device: Durable Object state is the
   memory (it survives app launches), OpenAI/ElevenLabs/R2 are its tools, and every game event runs the workflow
   remember -> write -> voice -> cache inside a 4.2 s budget. Workers is the runtime; nothing else runs server-side.
+  The same Worker hosts the **Goose Board** (`/board`, see [BOOTH.md](BOOTH.md)): a second Agent (one global Durable Object)
+  keeps today's runs, and the page shows the leaderboard next to the *live memory* of whichever phone is playing.
 - **OpenAI**: the brain writes every spoken line in character from the memory + event (structured JSON output, content guard),
   invents the goose's name and title, and transcribes the 2-second shout so the goose replies to what you said.
 - **ElevenLabs**: every persona owns a voice for life. The male-named geese (KEVIN, GARY, DR. HONK, ...) speak with the stock
@@ -178,6 +189,17 @@ Per-sponsor architecture documents with judges' FAQs: [docs/sponsors/](docs/spon
   `Resources/GooseVoice/m` and `/f`, about 2.8k of the free tier's 10k monthly characters). Voice Design needs a paid plan;
   `npm run design-voice` is there for when that changes.
 - **Sentry**: the instrument we benchmark, profile and tune the AR game with (next section), plus the Worker side.
+- **Sentry**: the instrument we benchmark, profile and tune the AR game with (next section), plus the Worker side.
+- **Elastic (Find the Signal)**: Elasticsearch is the goose's context layer. The messy data is real: multilingual shouted
+  speech (Whisper transcripts, `semantic_text` on Jina embeddings), a 5 Hz AR sensor stream from the phone (`goosed-telemetry`,
+  a time-series data stream: player/goose position, speed, distance, tier, frame time, thermal state) and every line and round.
+  At session start the brain runs seven ES|QL queries in parallel (crowd stats, this player's history and movement profile,
+  recent shouts, mercy flag) into a case file the writer taunts from; on a yell it runs one hybrid query (BM25 + Jina dense
+  vectors, RRF, optional rerank) to find who else shouted something like that, in any language. An Agent Builder agent
+  (`goosed-intel`, five tools) writes deeper notes in the background, and an Elastic Workflow closes the loop on its own every
+  five minutes: frame-rate collapses near the goose become Sentry issues, players who keep losing fast get a mercy flag the
+  goose reads. Nothing waits on Elastic on the phone: telemetry is batched and answered 202 before indexing; the beats read a
+  cached case file. See [docs/sponsors/ELASTIC.md](docs/sponsors/ELASTIC.md).
 
 ## Sentry: benchmark, profile, monitor (not just errors)
 
@@ -194,25 +216,28 @@ and **structured Logs** produced by the game's own harness, `PerfProbe`:
   The `sentry-trace` header continues the trace into the Worker, so one trace runs phone -> Worker -> OpenAI -> ElevenLabs.
 - **Metrics** (Sentry Application Metrics): every round emits `frame.p95_ms`, `frame.p50_ms`, `gpu.p95_ms`, `mem.peak_mb`,
   `frames.spikes`, `quality.tier`, `round.seconds` and `rounds` (tagged by outcome / config / device), the brain client emits
-  `brain.request_ms` per call, the voice emits `voice.spoken` / `voice.fallback`, the yell detector `yell.trigger` / `yell.gated`.
+  `brain.request_ms` per call, the voice emits `voice.spoken` / `voice.fallback`, the yell detector `yell.trigger` / `yell.gated`,
+  speech `speech.recognized` (tag `matched` = name / apology / none), the results card `share.opened` / `photo.taken`, the board `board.posted` (log).
 - Any frame over 33 ms on the device is a structured log `frame.spike` with all of that context. Everything the yell detector
   decides is logged with its levels (`yell.trigger`, `yell.gated reason=honk`), as are bread, dodges, fallbacks and quality changes.
 - **Adaptive quality**: when the rolling p95 frame time stays above 20 ms the ladder steps down (MSAA 2x -> occlusion temporal
   smoothing off -> grain/bloom/chromatic aberration off), never touching the goose, shadows or the shadow catcher, and logs
   `quality.tier_changed` with the thermal state.
-- **Benchmark**: hold three fingers on the title screen for 1.5 s (or `bench` in the Editor). The game drives itself to a chase the
-  goose cannot win and runs six render configurations for 15 s each (`baseline`, `msaa2x`, `no_occlusion_smoothing`, `no_postfx`,
-  `shadows1024`, `mesh_density_025`), each a `bench.<config>` transaction with the same measurements. Compare p95 per `config` in
-  Sentry's Trace Explorer / a dashboard and write the winners into `GooseBrawlSetup.ConfigureRenderPipeline`.
+- **Benchmark**: hold three fingers on the title screen for 1.5 s, launch the app with `GOOSE_BENCH=1` from the Mac
+  (`scratchpad/bench_device.sh`), or `bench` in the Editor. The game drives itself to a chase the goose cannot win and runs
+  ten render configurations for 15 s each (`baseline`, `msaa4x`, `msaa_off`, `no_occlusion_smoothing`, `no_occlusion`,
+  `no_postfx`, `shadows2048`, `mesh_on`, `render_scale_085`, `baseline_end`), each a `bench.<config>` transaction with the same
+  measurements plus a `bench.result` log, and writes a JSON report into the app's Documents folder. The process, the decision
+  rules and the results live in [docs/PERFORMANCE_BENCHMARK.md](docs/PERFORMANCE_BENCHMARK.md).
 
 Setup: put the Unity project's DSN in `./sentry.dsn` (gitignored) and run **Goose Brawl > Configure Sentry** (writes
 `Assets/Resources/Sentry/SentryOptions.asset`: tracing 100%, logs on, iOS native on, no symbol upload so the Xcode build never
 needs network). The Worker's DSN goes into `backend/goose-brain/wrangler.jsonc` (`SENTRY_DSN`). Create an Uptime monitor on
 `https://goose-brain.<account>.workers.dev/health` in the Sentry UI. Environments: `editor-mock` (smoke runs) and `device`.
 
-**What Sentry told us** (fill in after the device benchmark): p95 frame time per config on the iPhone 15 Pro, the spike when the
-goose's WAV is decoded on the main thread (`voice.decode`) and the fix, the ElevenLabs share of the yell round trip that justified
-the pre-voiced intro and the offline bank, and the `yell.gated reason=honk` logs that tuned the honk gate.
+**What Sentry told us**: see the "What the harness already changed" and "Results" sections of
+[docs/PERFORMANCE_BENCHMARK.md](docs/PERFORMANCE_BENCHMARK.md) (LiDAR mesh colliders and environment probes off, HUD rebuilds
+throttled, MSAA 2x / 1024 shadows kept, the per-config p95 table from the iPhone 15 Pro).
 
 ## Getting the brain online (once)
 
@@ -278,7 +303,7 @@ See KNOWN_LIMITATIONS.md for what was and was not verified on the device.
 - **UI**: title and results in the cream / yolk / brown brand; everything over the live camera is dark glass with light
   condensed type. The **locator** pins a goose icon, an arrow and the distance to the screen edge whenever the goose is
   off-screen (BEHIND YOU at the bottom when it is behind the phone) and pulses on every honk. Comic HONK bubbles pop only
-  while the goose is on screen. First run shows a three-step coaching card with a space-safety line. Pause (button or when
+  while the goose is on screen. Pause (button or when
   the app goes to the background), sound and haptics toggles, MOVE NEST from the results screen.
 - **Audio**: the honks are real geese (sixteen slices, shuffle-bag so nothing repeats). Everything else is synthesized at
   44.1 kHz in round-robin variants: webbed footsteps, wing flaps and a wing-beat loop for the fly-in, whooshes, the flap-dash
@@ -297,6 +322,21 @@ See KNOWN_LIMITATIONS.md for what was and was not verified on the device.
 
 Survival **time** is the score. The HUD shows the timer big, plus honks survived and your best time. The game-over card shows
 the time big, honks survived and the best time. Best time and games played are the only persistent data (PlayerPrefs, via `ScoreManager`).
+
+## Results card, photo, Goose Board
+
+- **Run recap**: under the big time the card lists what happened, only the non-zero items: `DASHES SURVIVED n · LUNGES SURVIVED n
+  · BREAD n · RAGE REACHED` (`RoundRecap`, built by `GooseGameManager.BuildRecap`).
+- **The photo** (`GooseShareService`): at the tackle the game grabs the slow-motion frame with the HUD hidden and a cream
+  GOOSED. stamp (goose name + title, `GOT YOU AT 0:32.4`, `HACK THE NORTH 2026`); a win captures the sulking goose (`OUTLASTED IN`).
+  **SHARE** opens the iOS share sheet (`Assets/Plugins/iOS/GooseShare.mm`: AirDrop, Messages, Save Image). **PHOTO WITH KEVIN**
+  hides the card: the goose stays put, turns to follow you, flaps and honks every few seconds; the shutter captures and shares.
+  In the Editor every capture is written to `Library/ShareShots/`.
+- **Goose Board**: when the Worker is reachable the card shows a name field and **POST TO BOARD** ("#3 ON THE BOARD"); the
+  title screen shows today's top three. Everything degrades silently offline (row and ticker hidden, card shorter).
+- **It knows its name**: the 2 s shout clip the mic already captures is also run through Apple's on-device recogniser
+  (`Assets/Plugins/iOS/GooseSpeech.mm`, `SpeechRecognizer.cs`); the flinch holds until the transcript lands (cap 1.6 s) and the
+  bank reply plays only when the shout was neither its name nor an apology. Silently off when the phone has no on-device model.
 
 ## Tuning
 

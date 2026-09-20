@@ -29,9 +29,18 @@ namespace GooseBrawl
         public int sampleRate = 16000;
         public float captureBefore = 0.3f;
         public float captureAfter = 1.7f;
+        [Tooltip("Speech results arriving later than this after the shout are dropped (the goose has moved on).")]
+        public float speechDeadlineAfterYell = 2.8f;
 
         public event Action<float> Yelled;
         public event Action<byte[]> YellAudioReady;
+        /// <summary>The transcript of the last shout ("" when nothing was understood or it came too late).</summary>
+        public event Action<string> TranscriptReady;
+        /// <summary>A transcript of the last shout is on its way (on-device speech recognition).</summary>
+        public bool RecognitionPending { get; private set; }
+        public bool SpeechReady => m_SpeechAvailable && GooseSpeech.AuthorizationStatus == 3;
+        bool m_SpeechAvailable;
+        string m_FakeTranscript;
 
         public bool Listening { get; private set; }
         public bool Available { get; private set; }
@@ -61,6 +70,10 @@ namespace GooseBrawl
                 Available = c != null;
                 var mgr = GooseGameManager.Instance;
                 if (mgr != null && mgr.Audio != null) mgr.Audio.EnsurePlaybackSession("permission_warmup");
+                // On-device speech (does it know its name?): probe and ask once, right behind the microphone prompt.
+                m_SpeechAvailable = GooseSpeech.Available;
+                if (m_SpeechAvailable && GooseSpeech.AuthorizationStatus == 0) GooseSpeech.RequestAuthorization();
+                GooseTelemetry.Log(GooseTelemetry.Level.Info, "speech.warmup", ("available", m_SpeechAvailable), ("auth", GooseSpeech.AuthorizationStatus));
             }
             catch (Exception e)
             {
@@ -168,13 +181,15 @@ namespace GooseBrawl
             m_LoudSince = -1f;
             GooseTelemetry.Log(GooseTelemetry.Level.Info, "yell.trigger", ("level_db", LevelDb), ("floor_db", FloorDb), ("simulated", simulated), ("count", YellCount));
             GooseTelemetry.Increment("yell.trigger", 1, ("simulated", simulated.ToString()));
+            RecognitionPending = m_FakeTranscript != null || (!simulated && SpeechReady);
             Yelled?.Invoke(LevelDb);
             StartCoroutine(CaptureWindow(simulated));
         }
 
-        /// <summary>Editor / smoke test: a synthetic shout through the same path.</summary>
-        public void SimulateYell()
+        /// <summary>Editor / smoke test: a synthetic shout through the same path (optionally with a fake transcript, e.g. the goose's name).</summary>
+        public void SimulateYell(string fakeTranscript = null)
         {
+            m_FakeTranscript = fakeTranscript;
             LevelDb = -8f;
             Trigger(true);
         }
@@ -215,6 +230,43 @@ namespace GooseBrawl
                 GooseTelemetry.CaptureException(e, "yell.capture");
             }
             if (wav != null) YellAudioReady?.Invoke(wav);
+            if (RecognitionPending) StartCoroutine(RecognizeRoutine(wav, LastYellTime));
+        }
+
+        /// <summary>Feed the clip to the on-device recogniser and publish the transcript (or "" on timeout / failure).</summary>
+        IEnumerator RecognizeRoutine(byte[] wav, float yellTime)
+        {
+            string text = "";
+            int status = -1;
+            float t0 = Time.unscaledTime;
+            if (m_FakeTranscript != null)
+            {
+                text = m_FakeTranscript; m_FakeTranscript = null; status = 1;
+                yield return new WaitForSecondsRealtime(0.4f);
+            }
+            else if (wav != null)
+            {
+                string path = null;
+                try { path = System.IO.Path.Combine(Application.temporaryCachePath, "yell.wav"); System.IO.File.WriteAllBytes(path, wav); }
+                catch (Exception e) { GooseTelemetry.CaptureException(e, "speech.write"); path = null; }
+                float budget = Mathf.Max(0.6f, yellTime + speechDeadlineAfterYell - Time.unscaledTime);
+                var mgr = GooseGameManager.Instance;
+                string context = ShoutClassifier.ContextCsv(mgr != null && mgr.Persona != null ? mgr.Persona.Name : "");
+                int id = path != null ? GooseSpeech.Recognize(path, context, budget) : -1;
+                if (id >= 0)
+                {
+                    while (Time.unscaledTime - t0 < budget + 0.3f)
+                    {
+                        status = GooseSpeech.Poll(id, out text);
+                        if (status != 0) break;
+                        yield return null;
+                    }
+                }
+            }
+            RecognitionPending = false;
+            bool late = Time.unscaledTime > yellTime + speechDeadlineAfterYell + 0.3f;
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "speech.result", ("ms", (Time.unscaledTime - t0) * 1000f), ("status", status), ("late", late), ("text", text ?? ""));
+            TranscriptReady?.Invoke(!late && status == 1 ? (text ?? "") : "");
         }
 
         public static byte[] EncodeWav(float[] samples, int rate)

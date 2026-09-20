@@ -1,7 +1,8 @@
 # GOOSED. — Demo Script (about 2 minutes)
 
 Best demo space: a room or corridor with a clear 3-4 m run and at least one wall or large piece of
-furniture the goose can be steered around. Sound on, volume up, haptics on.
+furniture the goose can be steered around. Sound on, volume up, haptics on. A laptop on the table open on the Goose Board
+(`https://goose-brain.mohammad-rashid7337.workers.dev/board`, see BOOTH.md) so the queue watches the goose's brain live.
 
 1. **Open the app.** Cream launch screen, then the title: "GOOSED. — Steal the egg. Get goosed." Tap **START**.
    (First launch: the camera permission prompt, then the three-step HOW IT WORKS card. Tap GOT IT.)
@@ -27,7 +28,9 @@ furniture the goose can be steered around. Sound on, volume up, haptics on.
    angrily when it has to reroute.
 8b. **Yell at it.** Shout at the phone ("GO AWAY, KEVIN!"). It flinches (feathers, RUDE.), backs off, then dashes back at you.
     Two seconds later it answers what you actually said. Say out loud that it heard you.
-8c. **Bread.** As the goose closes in, the round bread button (bottom right) grows and pulses. Tap it once: the roll flies past
+    Now shout its **name** ("KEVIN!"): it stops dead, snaps its head to the camera, one dramatic honk, "...WHAT." on the subtitle
+    pill, then it comes for you. Try "SORRY!": "APOLOGY NOT ACCEPTED." (Apple on-device speech, nothing leaves the phone.)
+8c. **Bread.** As the goose closes in, the round bread button (bottom right) grows and pulses. Tap it once: the slice of toast flies past
     the goose, it detours, eats it (OM NOM., crumbs) and comes back angrier with a dash. One roll per round.
 8d. **Dodge.** When it crouches to lunge, sidestep half a metre: DODGED! (hit-stop, feathers) and a sore-loser line. DODGES count on the HUD.
 9. **Escalation.** After ~8 seconds the goose starts **flap-dashing**: short low hops that cover a couple of metres
@@ -39,7 +42,12 @@ furniture the goose can be steered around. Sound on, volume up, haptics on.
     A new best gets a NEW BEST! stamp, a flock cheer and a success haptic.
 10b. **Or outlast it.** Survive 45 s and the goose gives up: THE GOOSE HAS GIVEN UP, it flops and sulks, the win card
     ("YOU OUTLASTED KEVIN") and a sore-loser line. (`GooseGameManager.outlastSeconds` is the demo knob.)
-11. **Restart.** Tap **RUN AGAIN**: "KEVIN IS BACK." The goose remembers: the grudge line under the title, and its intro quotes
+10c. **The photo.** The card lists the run (DASHES SURVIVED, LUNGES SURVIVED, BREAD, RAGE REACHED). Tap **SHARE**: the slow-motion
+    tackle frame with the GOOSED. stamp opens in the share sheet; AirDrop it to the judge. Or **PHOTO WITH KEVIN**: the card slides
+    away, walk around the goose (it turns to follow you, flaps, honks), frame it, tap the shutter, share.
+10d. **The board.** Type a name, tap **POST TO BOARD**: "#2 ON THE BOARD". Point at the laptop: the run appears on the Goose Board
+    within two seconds, and the right-hand panel is this phone's goose: its memory, grudge and the events of the round streaming in.
+11. **Restart.** Tap **RUN AGAIN**: "THIS MEANS WAR." The goose remembers: the grudge line under the title, and its intro quotes
     last time. The steal beat runs faster now and a tap skips ahead. **MOVE NEST** lets you pick a new spot. Show that BEST persists.
 12. **Sentry.** Open the `game.round` trace from the phone: phase spans, frame measurements, the Worker's `gen_ai.chat` span with
     token counts and the ElevenLabs span in the same trace; then the Logs view filtered on `frame.spike` / `yell.`.
@@ -54,4 +62,5 @@ Talking points while it runs:
   No music, on purpose.
 - Haptics are Core Haptics patterns: wing beats, footsteps you can feel within 3 m, the heartbeat, the tackle.
 - Avoidance uses the LiDAR scene mesh + detected walls as invisible colliders and simple capsule-cast steering.
-- Everything works offline; the only saved data is the best time and the sound/haptics toggles.
+- Everything works offline; the only saved data is the best time, your board name and the sound/haptics toggles.
+- The Goose Board is the same Worker: a second Durable Object holds today's runs; the page polls the playing phone's memory.

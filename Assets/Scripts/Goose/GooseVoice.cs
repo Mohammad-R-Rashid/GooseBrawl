@@ -19,6 +19,9 @@ namespace GooseBrawl
         public bool Speaking => m_Source != null && m_Source.isPlaying && m_Current != null;
         public string LastText { get; private set; } = "";
         public string LastSource { get; private set; } = "";
+        [Tooltip("When the brain wrote a line but could not voice it (TTS quota, deadline), the subtitle carries the words and the goose honks, instead of a bank line that says something else. Off = always the voiced bank line.")]
+        public bool subtitleBrainText = true;
+        public int TextOnlyCount { get; private set; }
 
         GooseChaseController m_Goose;
         GooseGameManager m_Mgr;
@@ -31,34 +34,58 @@ namespace GooseBrawl
 
         AudioHighPassFilter m_HighPass;
         AudioDistortionFilter m_Distortion;
+        AudioChorusFilter m_Chorus;
 
         public void Bind(GooseChaseController goose, GooseGameManager mgr)
         {
             m_Goose = goose;
             m_Mgr = mgr;
             m_Source = goose.voiceSource;
-            try { ApplyCharacter(); } catch (Exception e) { GooseTelemetry.CaptureException(e, "voice.character"); }
+            try { SetCharacter(true); SetCharacter(false); } catch (Exception e) { GooseTelemetry.CaptureException(e, "voice.character"); }
         }
 
-        /// <summary>The runtime voice character (AudioManager.voicePitch / voiceHighPassHz / voiceDistortion); re-applied per line so it can be tuned live.</summary>
-        void ApplyCharacter()
+        /// <summary>
+        /// The runtime voice character (AudioManager.voice*): the recordings are a calm human narrator, the goose is
+        /// a squeaky cartoon bird. Pitch up (in PlayQueue), thin it with a high-pass, cap it with the behind-you
+        /// low-pass (GooseChaseController), a chorus warble and a raspy distortion. Only on while a line plays: the
+        /// honk recordings on the same source stay as recorded. Re-applied per line so it can be tuned live.
+        /// </summary>
+        void ApplyCharacter() => SetCharacter(true);
+
+        void SetCharacter(bool on)
         {
             if (m_Source == null || m_Mgr == null || m_Mgr.Audio == null) return;
             var a = m_Mgr.Audio;
-            if (a.voiceHighPassHz > 0f)
+            bool hp = on && a.voiceHighPassHz > 0f;
+            if (hp)
             {
                 if (m_HighPass == null && !m_Source.TryGetComponent(out m_HighPass)) m_HighPass = m_Source.gameObject.AddComponent<AudioHighPassFilter>();
                 m_HighPass.cutoffFrequency = a.voiceHighPassHz;
-                m_HighPass.enabled = true;
+                m_HighPass.highpassResonanceQ = 1.3f;
             }
-            else if (m_HighPass != null) m_HighPass.enabled = false;
-            if (a.voiceDistortion > 0f)
+            if (m_HighPass != null) m_HighPass.enabled = hp;
+
+            bool warble = on && a.voiceWarbleDepth > 0f;
+            if (warble)
+            {
+                if (m_Chorus == null && !m_Source.TryGetComponent(out m_Chorus)) m_Chorus = m_Source.gameObject.AddComponent<AudioChorusFilter>();
+                m_Chorus.delay = 12f;
+                m_Chorus.rate = Mathf.Max(0.1f, a.voiceWarbleRateHz);
+                m_Chorus.depth = Mathf.Clamp01(a.voiceWarbleDepth);
+                m_Chorus.dryMix = 1f - 0.5f * a.voiceWarbleMix;
+                m_Chorus.wetMix1 = a.voiceWarbleMix;
+                m_Chorus.wetMix2 = 0f;
+                m_Chorus.wetMix3 = 0f;
+            }
+            if (m_Chorus != null) m_Chorus.enabled = warble;
+
+            bool dist = on && a.voiceDistortion > 0f;
+            if (dist)
             {
                 if (m_Distortion == null && !m_Source.TryGetComponent(out m_Distortion)) m_Distortion = m_Source.gameObject.AddComponent<AudioDistortionFilter>();
                 m_Distortion.distortionLevel = a.voiceDistortion;
-                m_Distortion.enabled = true;
             }
-            else if (m_Distortion != null) m_Distortion.enabled = false;
+            if (m_Distortion != null) m_Distortion.enabled = dist;
         }
 
         /// <summary>Speak a beat: ask the brain (if available) with a deadline, else play the bank line.</summary>
@@ -71,6 +98,7 @@ namespace GooseBrawl
         public void SayPrepared(GooseBrainClient.LineResult line, GooseLines.Beat fallbackBeat)
         {
             if (line != null && line.Clip != null) Say(line.Clip, line.Text, line.Source ?? "brain");
+            else if (line != null && subtitleBrainText && !string.IsNullOrEmpty(line.Text) && line.Source != "bank") SayTextOnly(line.Text, line.Source ?? "brain");
             else SayFallback(fallbackBeat == GooseLines.Beat.Intro && m_Mgr != null && m_Mgr.Persona != null && m_Mgr.Persona.Returning ? GooseLines.Beat.IntroAgain : fallbackBeat);
         }
 
@@ -118,12 +146,31 @@ namespace GooseBrawl
                 Say(result.Clip, result.Text, result.Source ?? "brain");
                 if (!string.IsNullOrEmpty(result.Transcript) && m_Mgr.Persona != null) m_Mgr.Persona.RecordShout(result.Transcript);
             }
+            else if (done && result != null && subtitleBrainText && !string.IsNullOrEmpty(result.Text) && result.Source != "bank")
+            {
+                // The brain wrote the line (with its Elastic case file) but could not voice it: the words still reach the player.
+                SayTextOnly(result.Text, result.Source ?? "brain");
+                if (!string.IsNullOrEmpty(result.Transcript) && m_Mgr.Persona != null) m_Mgr.Persona.RecordShout(result.Transcript);
+            }
             else
             {
                 if (!done) GooseTelemetry.Log(GooseTelemetry.Level.Warning, "voice.deadline", ("beat", GooseLines.Key(beat)), ("deadline_s", deadline));
                 SayFallback(beat);
             }
             onText?.Invoke(LastText);
+        }
+
+        /// <summary>A line the brain wrote but could not voice: the subtitle carries the words, the goose honks. Never a synthesized voice.</summary>
+        void SayTextOnly(string text, string source)
+        {
+            LastText = text;
+            LastSource = source;
+            SpokenCount++;
+            TextOnlyCount++;
+            if (m_Mgr != null && m_Mgr.UI != null) m_Mgr.UI.ShowSubtitle(GooseLines.Display(text), Mathf.Clamp(1.6f + text.Length * 0.06f, 2.2f, 4.5f));
+            if (m_Mgr != null && m_Mgr.Audio != null && m_Source != null && !m_Source.isPlaying) m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Angry, m_Source, 0.5f);
+            GooseTelemetry.Increment("voice.spoken", 1, ("source", source + "-text"));
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "voice.text_only", ("source", source), ("text", text));
         }
 
         public void Say(AudioClip clip, string text, string source)
@@ -173,6 +220,7 @@ namespace GooseBrawl
                     }
                 }
                 m_Current = null;
+                SetCharacter(false);
                 yield return new WaitForSecondsRealtime(0.25f);
             }
             m_Player = null;

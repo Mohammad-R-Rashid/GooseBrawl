@@ -92,6 +92,9 @@ rejection, cache hit / miss, budget overrun and fallback.
 
 ## Verify it yourself
 
+The full benchmark process (matrix, how to start it from the Mac, how to read it, results) is in
+[../PERFORMANCE_BENCHMARK.md](../PERFORMANCE_BENCHMARK.md).
+
 Run a round (or `Library/GooseBrawlCommand.txt` <- `smoke` in the Editor) and open the project in Sentry: Performance ->
 `game.round` (measurements tab, phase spans), Explore -> Traces (a `smokeonline` run shows the Worker spans in the same
 trace), Logs (filter `frame.spike`, `yell.`, `voice.`), Metrics (`frame.p95_ms` by `outcome`), Insights -> AI Agents

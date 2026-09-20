@@ -435,6 +435,189 @@ namespace GooseBrawl
             });
         }
 
+        // ------------------------------------------------------------------------------------------------
+        // Bread: a slice of toast (the one bread silhouette that reads as bread at any size)
+        // ------------------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Outline of a slice of toast in a unit box (x in [-0.5, 0.5], y in [0, 1]), counter-clockwise from the
+        /// bottom-left: flat bottom with rounded corners, straight sides, rounded top corners and two soft humps
+        /// with a shallow dip between them. Star-shaped around (0, 0.5), which the texture relies on.
+        /// </summary>
+        static List<Vector2> ToastOutline()
+        {
+            var pts = new List<Vector2>(128);
+            const float r = 0.11f;     // bottom corner radius
+            const float rc = 0.10f;    // top corner radius
+            const float side = 0.66f;  // height where the top corners end
+            void Arc(Vector2 c, float radius, float a0Deg, float a1Deg, int n)
+            {
+                for (int i = 0; i <= n; i++)
+                {
+                    float a = Mathf.Lerp(a0Deg, a1Deg, i / (float)n) * Mathf.Deg2Rad;
+                    pts.Add(c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius);
+                }
+            }
+            float Top(float s) // height of the top edge at |x| = s, for s in [0, 0.5 - rc]
+            {
+                const float hump = 0.26f, end = 0.40f;
+                float g = s >= hump ? 0.5f + 0.5f * Mathf.Cos((s - hump) / (end - hump) * Mathf.PI)
+                                    : 0.7f + 0.3f * (0.5f - 0.5f * Mathf.Cos(s / hump * Mathf.PI));
+                return side + 0.34f * g;
+            }
+            pts.Add(new Vector2(-0.5f + r, 0f));
+            pts.Add(new Vector2(0.5f - r, 0f));
+            Arc(new Vector2(0.5f - r, r), r, -90f, 0f, 6);
+            pts.Add(new Vector2(0.5f, side - rc));
+            Arc(new Vector2(0.5f - rc, side - rc), rc, 0f, 90f, 6);
+            const int top = 44;
+            for (int i = 1; i < top; i++)
+            {
+                float x = Mathf.Lerp(0.5f - rc, -(0.5f - rc), i / (float)top);
+                pts.Add(new Vector2(x, Top(Mathf.Abs(x))));
+            }
+            Arc(new Vector2(-(0.5f - rc), side - rc), rc, 90f, 180f, 6);
+            pts.Add(new Vector2(-0.5f, r));
+            Arc(new Vector2(-0.5f + r, r), r, 180f, 270f, 6);
+            // Drop consecutive duplicates.
+            for (int i = pts.Count - 1; i > 0; i--) if ((pts[i] - pts[i - 1]).sqrMagnitude < 1e-8f) pts.RemoveAt(i);
+            if ((pts[0] - pts[pts.Count - 1]).sqrMagnitude < 1e-8f) pts.RemoveAt(pts.Count - 1);
+            return pts;
+        }
+
+        /// <summary>
+        /// A slice of toast: the outline extruded to a slab with a gently puffed face on both sides, pivot at the
+        /// centre, face normal along +Z. Planar UVs over the unit box so ToastTexture's crust band lines up with the
+        /// rim; the side quads sample the texture at the rim and come out crust-coloured.
+        /// </summary>
+        public static Mesh ToastSliceMesh(string name, float width, float height, float thickness)
+        {
+            var outline = ToastOutline();
+            int n = outline.Count;
+            var centre = new Vector2(0f, 0.5f);
+            var verts = new List<Vector3>(n * 8);
+            var uvs = new List<Vector2>(n * 8);
+            var tris = new List<int>(n * 24);
+            Vector3 P(Vector2 p, float z) => new Vector3(p.x * width, (p.y - 0.5f) * height, z);
+            Vector2 Uv(Vector2 p) => new Vector2(p.x + 0.5f, p.y);
+
+            int Face(float sign)
+            {
+                int c = verts.Count;
+                verts.Add(P(centre, sign * thickness * 0.5f * 1.35f));
+                uvs.Add(Uv(centre));
+                int mid = verts.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector2 p = centre + (outline[i] - centre) * 0.55f;
+                    verts.Add(P(p, sign * thickness * 0.5f * 1.25f));
+                    uvs.Add(Uv(p));
+                }
+                int rim = verts.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    verts.Add(P(outline[i], sign * thickness * 0.5f));
+                    uvs.Add(Uv(outline[i]));
+                }
+                for (int i = 0; i < n; i++)
+                {
+                    int j = (i + 1) % n;
+                    if (sign > 0f) { tris.Add(c); tris.Add(mid + i); tris.Add(mid + j); }
+                    else { tris.Add(c); tris.Add(mid + j); tris.Add(mid + i); }
+                    int a = mid + i, b = mid + j, d = rim + i, e = rim + j;
+                    if (sign > 0f) { tris.Add(a); tris.Add(d); tris.Add(e); tris.Add(a); tris.Add(e); tris.Add(b); }
+                    else { tris.Add(a); tris.Add(e); tris.Add(d); tris.Add(a); tris.Add(b); tris.Add(e); }
+                }
+                return rim;
+            }
+            Face(1f);
+            Face(-1f);
+            // Sides: their own vertices so the rim stays a hard edge.
+            int s0 = verts.Count;
+            for (int i = 0; i < n; i++)
+            {
+                verts.Add(P(outline[i], thickness * 0.5f)); uvs.Add(Uv(outline[i]));
+                verts.Add(P(outline[i], -thickness * 0.5f)); uvs.Add(Uv(outline[i]));
+            }
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                int a = s0 + i * 2, b = s0 + i * 2 + 1, c = s0 + j * 2, d = s0 + j * 2 + 1;
+                tris.Add(a); tris.Add(c); tris.Add(b);
+                tris.Add(b); tris.Add(c); tris.Add(d);
+            }
+            var mesh = new Mesh { name = name };
+            mesh.SetVertices(verts);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            mesh.RecalculateTangents();
+            return mesh;
+        }
+
+        /// <summary>
+        /// The face of a slice of lightly toasted bread over the outline's unit box: a golden crumb with pores, a
+        /// dark-to-golden crust band that follows the outline, crust colour outside it (what the side quads sample).
+        /// </summary>
+        public static Texture2D ToastTexture(int size = 256)
+        {
+            return Cached("Toast", () =>
+            {
+                var outline = ToastOutline();
+                var centre = new Vector2(0f, 0.5f);
+                // Outline radius per angle around the centre (the shape is star-shaped), from finely sampled segments.
+                const int bins = 720;
+                var radius = new float[bins];
+                for (int i = 0; i < outline.Count; i++)
+                {
+                    Vector2 a = outline[i], b = outline[(i + 1) % outline.Count];
+                    for (int k = 0; k <= 8; k++)
+                    {
+                        Vector2 p = Vector2.Lerp(a, b, k / 8f) - centre;
+                        int bin = Mathf.FloorToInt((Mathf.Atan2(p.y, p.x) + Mathf.PI) / (2f * Mathf.PI) * bins) % bins;
+                        if (bin < 0) bin += bins;
+                        radius[bin] = Mathf.Max(radius[bin], p.magnitude);
+                    }
+                }
+                for (int pass = 0; pass < 2; pass++)
+                    for (int i = 0; i < bins; i++)
+                        if (radius[i] <= 0f) radius[i] = Mathf.Max(radius[(i + bins - 1) % bins], radius[(i + 1) % bins]);
+
+                var tex = NewTexture("Toast", size, size, true, TextureWrapMode.Clamp);
+                var px = new Color[size * size];
+                Color crumbPale = new Color(0.93f, 0.80f, 0.55f), crumbGold = new Color(0.80f, 0.56f, 0.28f), pore = new Color(0.64f, 0.44f, 0.22f);
+                Color crustOuter = new Color(0.34f, 0.16f, 0.04f), crustInner = new Color(0.66f, 0.40f, 0.14f);
+                const float crust = 0.10f;
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        float u = (x + 0.5f) / size, v = (y + 0.5f) / size;
+                        Vector2 p = new Vector2(u - 0.5f, v) - centre;
+                        float ang = Mathf.Atan2(p.y, p.x);
+                        float rOut = radius[((int)((ang + Mathf.PI) / (2f * Mathf.PI) * bins)) % bins];
+                        float d = rOut - p.magnitude; // > 0 inside, roughly the distance to the rim
+                        float toast = ValueNoise(u * 5f, v * 5f, 41) * 0.6f + ValueNoise(u * 14f, v * 14f, 42) * 0.4f;
+                        Color c = Color.Lerp(crumbPale, crumbGold, 0.3f + 0.55f * toast);
+                        float pores = ValueNoise(u * 26f, v * 26f, 43);
+                        float pores2 = ValueNoise(u * 60f, v * 60f, 44);
+                        if (pores > 0.60f) c = Color.Lerp(c, pore, Mathf.Clamp01((pores - 0.60f) * 4f) * 0.8f);
+                        if (pores2 > 0.78f) c = Color.Lerp(c, pore, Mathf.Clamp01((pores2 - 0.78f) * 5f) * 0.6f);
+                        // Crust band: dark at the rim, golden toward the crumb, with a little bake noise.
+                        float band = Mathf.Clamp01(d / crust);
+                        float bake = ValueNoise(u * 30f, v * 30f, 45);
+                        Color crustC = Color.Lerp(crustOuter, crustInner, Mathf.SmoothStep(0f, 1f, band) * (0.85f + 0.3f * bake));
+                        float inCrust = 1f - Mathf.SmoothStep(0.5f, 1f, band);
+                        c = Color.Lerp(c, crustC, inCrust);
+                        if (d <= 0f) c = Color.Lerp(crustOuter, crustInner, 0.25f * bake);
+                        px[y * size + x] = c;
+                    }
+                tex.SetPixels(px);
+                tex.Apply(true, false);
+                return tex;
+            });
+        }
+
         /// <summary>A dinner roll: flat-bottomed lathe dome with a lumpy rim, pivot at the base centre.</summary>
         public static Mesh BreadRollMesh(string name, float width, float height, int seed)
         {
@@ -488,12 +671,16 @@ namespace GooseBrawl
                     for (int x = 0; x < size; x++)
                     {
                         float u = x / (float)size, v = y / (float)size;
-                        float tone = ValueNoise(u * 5f, v * 5f, 21);
+                        // The egg mesh pinches this texture into a point at each pole; the fan of triangles there
+                        // samples the whole width of the top rows and smeared the speckles into a dark ring on the
+                        // tip. Fade the speckles and the tone noise out toward both poles so there is nothing to smear.
+                        float pole = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.90f, 0.76f, v)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.16f, v));
+                        float tone = Mathf.Lerp(0.35f, ValueNoise(u * 5f, v * 5f, 21), pole);
                         Color c = Color.Lerp(shell, warm, tone * 0.6f);
                         float sp = ValueNoise(u * 60f, v * 60f, 33);
                         float sp2 = ValueNoise(u * 140f, v * 140f, 34);
-                        if (sp > 0.78f) c = Color.Lerp(c, speck, Mathf.Clamp01((sp - 0.78f) * 6f));
-                        if (sp2 > 0.86f) c = Color.Lerp(c, speck, Mathf.Clamp01((sp2 - 0.86f) * 5f) * 0.7f);
+                        if (sp > 0.78f) c = Color.Lerp(c, speck, Mathf.Clamp01((sp - 0.78f) * 6f) * pole);
+                        if (sp2 > 0.86f) c = Color.Lerp(c, speck, Mathf.Clamp01((sp2 - 0.86f) * 5f) * 0.7f * pole);
                         px[y * size + x] = c;
                     }
                 tex.SetPixels(px);

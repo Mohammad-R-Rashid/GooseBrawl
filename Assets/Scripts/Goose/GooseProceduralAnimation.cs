@@ -86,6 +86,16 @@ namespace GooseBrawl
             m_ThinkUntil = Time.time + seconds;
         }
 
+        /// <summary>Next LateUpdate the head jumps straight to the look target (it just heard its name).</summary>
+        public void SnapLook()
+        {
+            m_SnapPending = true;
+            m_ThinkUntil = 0f;
+            m_GlanceUntil = 0f;
+            m_NextGlance = Time.time + 2.5f;
+        }
+        bool m_SnapPending;
+
         void LateUpdate()
         {
             if (m_Vis == null || m_Root == null) return;
@@ -135,7 +145,8 @@ namespace GooseBrawl
 
             targetYaw = Mathf.Clamp(targetYaw, -maxHeadYaw, maxHeadYaw);
             targetPitch = Mathf.Clamp(targetPitch, -maxHeadPitch, maxHeadPitch);
-            // Comically fast head turns.
+            // Comically fast head turns (instant when it heard its name).
+            if (m_SnapPending) { m_Yaw = targetYaw; m_Pitch = targetPitch; m_SnapPending = false; }
             m_Yaw = Mathf.MoveTowardsAngle(m_Yaw, targetYaw, headTurnSpeed * dt);
             m_Pitch = Mathf.MoveTowardsAngle(m_Pitch, targetPitch, headTurnSpeed * dt);
 

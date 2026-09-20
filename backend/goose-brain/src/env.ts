@@ -1,5 +1,7 @@
 export interface Env {
   GooseBrain: DurableObjectNamespace;
+  /** The Goose Board (one global instance named "global"): today's runs + who is playing now. */
+  GooseBoard: DurableObjectNamespace;
   BUCKET: R2Bucket;
   OPENAI_API_KEY?: string;
   ELEVENLABS_API_KEY?: string;
@@ -18,6 +20,18 @@ export interface Env {
   OPENAI_MODEL: string;
   OPENAI_TRANSCRIBE_MODEL: string;
   MOCK_AI: string;
+  /** Elasticsearch (Elastic Cloud Serverless) endpoint; empty = the Elastic context layer is off (everything still works). */
+  ELASTIC_URL?: string;
+  /** Kibana endpoint of the same project, for the Agent Builder converse API. */
+  ELASTIC_KIBANA_URL?: string;
+  /** Elastic API key (secret: wrangler secret put ELASTIC_API_KEY). */
+  ELASTIC_API_KEY?: string;
+  /** Agent Builder agent id (scripts/elastic-agent.ts); empty = no deep tier. */
+  ELASTIC_AGENT_ID?: string;
+  /** Rerank inference endpoint id for the shout search; empty = RRF only. */
+  ELASTIC_RERANK_ID?: string;
+  /** Workers AI binding: Whisper (ears) and Llama (writer) when there is no OpenAI key. */
+  AI?: Ai;
 }
 
 export type Beat = "intro" | "taunt10" | "yell" | "bread" | "dodge" | "rage" | "caught" | "outlasted" | "intro_again";

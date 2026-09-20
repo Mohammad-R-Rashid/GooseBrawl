@@ -361,6 +361,7 @@ namespace GooseBrawl
                             case GooseState.Eating: phase = "eating"; break;
                             case GooseState.Distracted: phase = "distracted"; break;
                             case GooseState.Flinched: phase = "flinch"; break;
+                            case GooseState.NameCalled: phase = "name_called"; break;
                             default: phase = "chase.tier" + goose.Tier; break;
                         }
                     }
@@ -383,7 +384,7 @@ namespace GooseBrawl
                 ("frame_ms", ms), ("gpu_ms", gpu), ("main_ms", main), ("mem_mb", mem / (1024f * 1024f)), ("gc_kb", gc / 1024f), ("draw_calls", draws),
                 ("game_state", mgr != null ? mgr.State.ToString() : "none"), ("goose_state", goose != null ? goose.State.ToString() : "none"),
                 ("goose_tier", goose != null ? goose.Tier : -1), ("goose_distance", goose != null ? goose.DistanceToPlayer : -1f),
-                ("particles", LiveParticles), ("mesh_chunks", chunks), ("planes", mgr != null && mgr.Environment != null ? mgr.Environment.PlaneCount : 0),
+                ("particles", LiveParticles), ("mesh_chunks", chunks), ("meshing", mgr != null && mgr.AR != null && mgr.AR.MeshingActive), ("planes", mgr != null && mgr.Environment != null ? mgr.Environment.PlaneCount : 0),
                 ("tracking_good", mgr != null && mgr.Player != null && mgr.Player.TrackingGood), ("occlusion", occlusion), ("occlusion_smoothing", smoothing),
                 ("msaa", urp != null ? urp.msaaSampleCount : 0), ("render_scale", urp != null ? urp.renderScale : 0f), ("shadow_res", urp != null ? urp.mainLightShadowmapResolution : 0),
                 ("post_fx", PostFxEnabled), ("brain_in_flight", BrainRequestInFlight), ("voice_decode", VoiceDecodeInFlight), ("mic", MicListening),
@@ -439,7 +440,12 @@ namespace GooseBrawl
             SetPostFx(true);
             if (CinematicLookController.Instance != null) CinematicLookController.Instance.SetReducedFX(false);
             var mgr = GooseGameManager.Instance;
-            if (mgr != null && mgr.AR != null && mgr.AR.meshManager != null && m_MeshDensityOriginal >= 0f) mgr.AR.meshManager.density = m_MeshDensityOriginal;
+            if (mgr != null && mgr.AR != null)
+            {
+                if (mgr.AR.meshManager != null && m_MeshDensityOriginal >= 0f) mgr.AR.meshManager.density = m_MeshDensityOriginal;
+                mgr.AR.SetMeshing(mgr.AR.enableEnvironmentMeshing);
+                mgr.AR.SetOcclusion(mgr.AR.enableOcclusion);
+            }
             QualityTier = 0;
         }
 
@@ -480,6 +486,29 @@ namespace GooseBrawl
             var mgr = GooseGameManager.Instance;
             if (mgr == null || mgr.AR == null || mgr.AR.IsMock || mgr.AR.meshManager == null) return;
             try { mgr.AR.meshManager.density = Mathf.Clamp01(density); } catch { }
+        }
+
+        public void SetMeshing(bool on)
+        {
+            Remember();
+            var mgr = GooseGameManager.Instance;
+            if (mgr == null || mgr.AR == null) return;
+            mgr.AR.SetMeshing(on);
+        }
+
+        public void SetOcclusion(bool on)
+        {
+            Remember();
+            var mgr = GooseGameManager.Instance;
+            if (mgr == null || mgr.AR == null) return;
+            mgr.AR.SetOcclusion(on);
+        }
+
+        public void SetRenderScale(float scale)
+        {
+            Remember();
+            var urp = Urp;
+            if (urp != null) urp.renderScale = Mathf.Clamp(scale, 0.5f, 1f);
         }
 
         /// <summary>Ladder from the MSAA 2x / 1024 baseline: 1 = occlusion smoothing off, 2 = grain/bloom/CA off, 3 = render scale 0.85.</summary>

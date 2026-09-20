@@ -48,7 +48,16 @@ namespace GooseBrawl
         public Material Dust => dustMaterial != null ? dustMaterial : (dustMaterial = ProceduralAssets.UnlitTransparent("Dust_Runtime", new Color(0.85f, 0.78f, 0.62f, 0.7f), ProceduralAssets.RadialTexture()));
         public Material PlaceholderGoose => placeholderGooseMaterial != null ? placeholderGooseMaterial : (placeholderGooseMaterial = ProceduralAssets.LitMaterial("PlaceholderGoose_Runtime", new Color(0.95f, 0.95f, 0.93f), 0.3f));
         public Material Accent => accentMaterial != null ? accentMaterial : (accentMaterial = ProceduralAssets.LitMaterial("Accent_Runtime", new Color(1f, 0.55f, 0.1f), 0.4f));
-        public Material Bread => breadMaterial != null ? breadMaterial : (breadMaterial = ProceduralAssets.LitMaterial("Bread_Runtime", new Color(0.95f, 0.85f, 0.7f), 0.12f, default, ProceduralAssets.CrustTexture()));
+        public Material Bread => breadMaterial != null ? breadMaterial : (breadMaterial = MakeToastMaterial());
+
+        static Material MakeToastMaterial()
+        {
+            // The toast texture maps once over the slice (LitMaterial tiles textures 8x for the surfaces it was written for).
+            var m = ProceduralAssets.LitMaterial("Bread_Runtime", Color.white, 0.08f, default, ProceduralAssets.ToastTexture());
+            m.SetTextureScale("_BaseMap", Vector2.one);
+            m.SetTextureScale("_MainTex", Vector2.one);
+            return m;
+        }
         public Material Crumbs => crumbMaterial != null ? crumbMaterial : (crumbMaterial = ProceduralAssets.UnlitTransparent("Crumbs_Runtime", new Color(0.8f, 0.58f, 0.3f, 0.9f), ProceduralAssets.RadialTexture()));
 
         /// <summary>Goose material for this round: the grey variant every third game (deterministic: the demo run is never a dice roll).</summary>

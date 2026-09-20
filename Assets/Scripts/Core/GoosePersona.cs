@@ -20,7 +20,7 @@ namespace GooseBrawl
         public string Title { get; private set; } = "";
         /// <summary>Which stock voice this goose speaks with, fixed for its whole life.</summary>
         public bool Female { get; private set; }
-        public string VoiceFolder => Female ? GooseLines.FemaleVoiceFolder : GooseLines.MaleVoiceFolder;
+        public string VoiceFolder => Female || GooseLines.IsFemaleName(Name) ? GooseLines.FemaleVoiceFolder : GooseLines.MaleVoiceFolder;
         /// <summary>Rounds the goose has won against this player, across launches.</summary>
         public int Grudge { get; private set; }
         public int Wins { get; private set; }
@@ -57,7 +57,7 @@ namespace GooseBrawl
         {
             if (string.IsNullOrEmpty(name)) return;
             Name = name.ToUpperInvariant();
-            Female = female;
+            Female = female || GooseLines.IsFemaleName(Name);
             Title = string.IsNullOrEmpty(title) ? Title : title.ToUpperInvariant();
             Grudge = Mathf.Max(Grudge, grudge);
             Source = "brain";

@@ -1,7 +1,8 @@
 # GOOSED. sponsor integrations
 
-One architecture serves four sponsor tracks. The goose in the AR game has a **brain** (a Cloudflare Agent), a **voice**
-(ElevenLabs), a **writer** (OpenAI, optional), and the whole thing is **benchmarked, profiled and monitored with Sentry**.
+One architecture serves five sponsor tracks. The goose in the AR game has a **brain** (a Cloudflare Agent), a **voice**
+(ElevenLabs), a **writer** (OpenAI, or Llama on Workers AI), a **case file** (Elasticsearch: shouts, sensor stream, rounds, an Agent
+Builder agent and a Workflow), and the whole thing is **benchmarked, profiled and monitored with Sentry**.
 
 ```
  iPhone (Unity 6, AR Foundation)            Cloudflare Worker "goose-brain"                    Third parties
@@ -23,6 +24,7 @@ One architecture serves four sponsor tracks. The goose in the AR game has a **br
 | MLH: Best Use of ElevenLabs | [ELEVENLABS.md](ELEVENLABS.md) | live: two stock voices, 168-line pre-voiced bank + live cache |
 | Sentry: Best Use of Sentry | [SENTRY.md](SENTRY.md) | live: errors, tracing, logs, metrics on phone and Worker; Uptime monitor to create in the UI |
 | OpenAI: API Prizes | [OPENAI.md](OPENAI.md) | the writer (Responses API, structured output) and the ears (transcription); the script bank is the offline fallback |
+| Elastic: Find the Signal | [ELASTIC.md](ELASTIC.md) | live: Elastic Cloud Serverless project; shouts (Jina semantic_text), 5 Hz AR sensor stream (TSDS), runs, lines; ES|QL case file + hybrid shout search on the Worker; Agent Builder agent `goosed-intel`; Workflow `goosed-watch` |
 
 Everything gameplay-relevant is deterministic and local. The cloud supplies words and voice, and every spoken beat has an
 offline fallback, so the one demo run never depends on the venue wifi.

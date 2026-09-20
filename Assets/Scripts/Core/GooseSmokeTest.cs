@@ -117,10 +117,19 @@ namespace GooseBrawl
             // Carry phase: walk backwards so the grip drains from movement (the slip is player-caused).
             yield return new WaitForSeconds(0.9f);
             yield return Shot("04c_carry");
-            mgr.Mock.AutoMove = new Vector2(1f, 0f); // sidestep into open floor
-            float t = 0f;
-            while (mgr.Nest.Egg.CrackedEgg == null && t < 12f) { t += Time.deltaTime; yield return null; }
+            // A few small brisk sidesteps back and forth: each reversal is a jerk the palm remembers; a few of them spill it.
+            float mockSpeed = mgr.Mock.moveSpeed;
+            mgr.Mock.moveSpeed = 0.6f; // brisk: a reversal is ~1.2 m/s of jerk, two or three of them spill it
+            float t = 0f, flip = 0f;
+            int dir = -1;
+            while (mgr.Nest.Egg.CrackedEgg == null && t < 12f)
+            {
+                t += Time.deltaTime;
+                if (t >= flip) { flip = t + 0.5f; dir = -dir; mgr.Mock.AutoMove = new Vector2(dir, 0f); }
+                yield return null;
+            }
             mgr.Mock.AutoMove = Vector2.zero;
+            mgr.Mock.moveSpeed = mockSpeed;
             Check(t < 6f, "Egg slipped from the player's movement within " + t.ToString("F1") + " s");
             // Back to the original spot and facing so the entrance and the head-start run are reproducible.
             mgr.Mock.TeleportTo(playerBefore, fwdBefore);
@@ -186,7 +195,7 @@ namespace GooseBrawl
             bool locatorSeen = false;
             bool runFlapShot = false;
             var locator = FindAnyObjectByType<GooseLocator>();
-            while (t < 6f && mgr.ChaseActive)
+            while (t < 4.2f && mgr.ChaseActive) // shorter than the 6 s tier-1 start: the head start is walk + grace only
             {
                 t += Time.deltaTime;
                 Sample(mgr, goose, crateCol);
@@ -217,24 +226,27 @@ namespace GooseBrawl
             Check(locatorSeen, "Locator shown while the goose was off-screen");
             Check(goose.State != GooseState.GameOver, "Player not caught during the head start");
 
-            // Turn back to look at it.
+            // The scripted beats (dash, bread, shout) must all happen: no catch until they have, whatever the tuning.
+            goose.NoCatch = true;
+            // Step onto open floor 5 m from the goose first (tier 1 and its first dash begin at 6 s: turning round next
+            // to it would end the round), then turn back to look at it.
+            Vector3 gpos = goose.transform.position;
+            Vector3 openDir = Vector3.left; // the mock room is open toward -x
+            Vector3 spot = new Vector3(gpos.x, mgr.FloorY, gpos.z) + openDir * 5.2f;
+            mgr.Mock.TeleportTo(spot, openDir); // still facing away from it
             mgr.Mock.AutoTurn = 225f;
             yield return new WaitForSeconds(0.8f);
             mgr.Mock.AutoTurn = 0f;
+            mgr.Mock.LookAt(goose.transform.position + Vector3.up * 0.3f);
             yield return null;
             bool visible = mgr.Player.IsInView(goose.transform.position + Vector3.up * 0.3f);
             Debug.Log("[Smoke] after turning back: goose in view=" + visible + " dist=" + goose.DistanceToPlayer.ToString("F2"));
             Check(visible || goose.DistanceToPlayer < 1.2f, "Goose visible after turning back");
             yield return Shot("09_chase_front");
 
-
-            // Escalation window: put the player on open floor 5 m from the goose, facing it, and wait for a flap-dash.
-            Vector3 gpos = goose.transform.position;
-            Vector3 openDir = Vector3.left; // the mock room is open toward -x
-            Vector3 spot = new Vector3(gpos.x, mgr.FloorY, gpos.z) + openDir * 5.2f;
-            mgr.Mock.TeleportTo(spot, -openDir);
+            // Escalation window: wait here for a flap-dash.
             t = 0f;
-            int dashesBefore = goose.DashCount;
+            int dashesBefore = goose.DashCount - (goose.DashCount > 0 ? 1 : 0); // a dash during the head start counts
             while (t < 14f && mgr.ChaseActive && goose.DashCount == dashesBefore)
             {
                 t += Time.deltaTime;
@@ -259,6 +271,13 @@ namespace GooseBrawl
             // Bread (thrown when the goose is close): it lands beyond the goose, the goose detours and eats, then comes back angrier.
             t = 0f;
             while (t < 6f && mgr.ChaseActive && (goose.State == GooseState.Dash || goose.State == GooseState.JumpAttack)) { t += Time.deltaTime; yield return null; }
+            if (mgr.ChaseActive)
+            {
+                // Throw from a safe distance so the detour, the meal and the shout all happen before it can reach us.
+                Vector3 g2 = goose.transform.position;
+                mgr.Mock.TeleportTo(new Vector3(g2.x, mgr.FloorY, g2.z) + openDir * 4.5f, -openDir);
+                yield return null;
+            }
             mgr.OnBreadPressed();
             Check(mgr.BreadsThrown == 1, "Bread thrown (HUD button / B key)");
             t = 0f;
@@ -292,8 +311,9 @@ namespace GooseBrawl
             while (t < 6f && goose.Voice != null && goose.Voice.SpokenCount == spokenBefore) { t += Time.deltaTime; yield return null; }
             Check(goose.Voice != null && goose.Voice.SpokenCount > spokenBefore, "Goose answered the shout (spoken=" + (goose.Voice != null ? goose.Voice.SpokenCount : 0) + ")");
 
+            goose.NoCatch = false;
             t = 0f;
-            while (mgr.State != GooseGameState.GameOver && t < 40f)
+            while (mgr.State != GooseGameState.GameOver && t < 40f && goose != null)
             {
                 t += Time.deltaTime;
                 Sample(mgr, goose, crateCol);
@@ -321,6 +341,16 @@ namespace GooseBrawl
 
             yield return new WaitForSecondsRealtime(2.5f);
             yield return Shot("12_gameover");
+            if (online)
+            {
+                // Goose Board: the results card's POST TO BOARD path end to end (the Worker answers with a rank).
+                Check(mgr.BoardAvailable, "Goose Board row available (Worker reachable, run snapshot taken)");
+                int rank = 0; bool answered = false;
+                mgr.PostRunToBoard("SMOKE", r => { rank = r; answered = true; });
+                t = 0f;
+                while (!answered && t < 8f) { t += Time.unscaledDeltaTime; yield return null; }
+                Check(answered && rank > 0, "Goose Board accepted the run (rank " + rank + ")");
+            }
             mgr.OnRunAgainPressed();
             yield return null;
             Check(mgr.State == GooseGameState.EggReady, "Run again -> EggReady");

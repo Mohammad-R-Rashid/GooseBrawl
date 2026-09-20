@@ -26,14 +26,14 @@ namespace GooseBrawl
 
         [Header("Features")]
         public bool enableVerticalPlanes = true;
-        [Tooltip("ARKit scene reconstruction (LiDAR). Falls back to planes when unsupported.")]
-        public bool enableEnvironmentMeshing = true;
+        [Tooltip("ARKit scene reconstruction (LiDAR). Off by default: every chunk update cooked a MeshCollider on the main thread (frame hitches) and the goose steers just as well against the detected wall planes. The benchmark config 'mesh_on' measures it.")]
+        public bool enableEnvironmentMeshing = false;
         [Tooltip("Mesh density 0-1 (0.35: fewer collider rebuilds per second, same walls for the goose).")]
         [Range(0.1f, 1f)] public float meshDensity = 0.35f;
         [Tooltip("Environment depth occlusion so the goose can hide behind real furniture.")]
         public bool enableOcclusion = true;
-        [Tooltip("ARKit environment texturing: real reflections on the egg and the goose.")]
-        public bool enableEnvironmentProbes = true;
+        [Tooltip("ARKit environment texturing (reflection cubemaps). Off by default: the egg and the nest are matte now and each probe update uploads and convolves a cubemap.")]
+        public bool enableEnvironmentProbes = false;
 
         public bool IsMock { get; private set; }
         public bool Initialized { get; private set; }
@@ -47,6 +47,30 @@ namespace GooseBrawl
                 var sub = meshManager.subsystem;
                 return sub != null && sub.running;
             }
+        }
+
+        /// <summary>Runtime switch for the benchmark / quality ladder (scene reconstruction on or off after the scan started).</summary>
+        public void SetMeshing(bool on)
+        {
+            if (IsMock || meshManager == null || !ScanningStarted) return;
+            try
+            {
+                if (on) { meshManager.density = meshDensity; meshManager.enabled = true; }
+                else meshManager.enabled = false;
+            }
+            catch (Exception e) { GooseLog.Warn("Environment meshing toggle failed: " + e.Message); }
+        }
+
+        /// <summary>Runtime switch for environment-depth occlusion (benchmark / quality ladder).</summary>
+        public void SetOcclusion(bool on)
+        {
+            if (IsMock || occlusionManager == null || !ScanningStarted) return;
+            try
+            {
+                occlusionManager.requestedEnvironmentDepthMode = on ? EnvironmentDepthMode.Fastest : EnvironmentDepthMode.Disabled;
+                occlusionManager.enabled = on;
+            }
+            catch (Exception e) { GooseLog.Warn("Occlusion toggle failed: " + e.Message); }
         }
 
         public bool OcclusionActive

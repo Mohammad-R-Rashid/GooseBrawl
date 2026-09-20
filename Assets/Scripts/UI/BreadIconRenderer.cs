@@ -37,12 +37,19 @@ namespace GooseBrawl
             var roll = new GameObject("Roll");
             roll.transform.SetParent(go.transform, false);
             roll.layer = layer;
-            roll.AddComponent<MeshFilter>().sharedMesh = ProceduralAssets.BreadRollMesh("BreadIconRoll", BreadController.Width, BreadController.Height, 3);
+            roll.AddComponent<MeshFilter>().sharedMesh = ProceduralAssets.ToastSliceMesh("BreadIconSlice", BreadController.Width, BreadController.SliceHeight, BreadController.Height);
             var mr = roll.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = mats != null ? mats.Bread : ProceduralAssets.LitMaterial("Bread_Runtime", new Color(0.83f, 0.6f, 0.33f), 0.15f);
+            // Unlit: the toast texture carries its own crust shading, and the icon must read the same in any room
+            // (the rig's point lights at 30 cm blew a lit face out to white).
+            var iconMat = ProceduralAssets.UnlitTransparent("BreadIcon_Runtime", Color.white, ProceduralAssets.ToastTexture());
+            iconMat.SetTextureScale("_BaseMap", Vector2.one);
+            iconMat.SetTextureScale("_MainTex", Vector2.one);
+            mr.sharedMaterial = iconMat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
-            roll.transform.localRotation = Quaternion.Euler(-32f, 0f, 0f);
+            // Upright, turned a little toward the key light: the classic toast icon with some depth on the crust.
+            roll.transform.localPosition = new Vector3(0f, 0.022f, 0f);
+            roll.transform.localRotation = Quaternion.Euler(-10f, 200f, 0f);
             r.m_Roll = roll.transform;
 
             // A small warm light of its own so the icon reads the same in a dark room.
@@ -52,7 +59,7 @@ namespace GooseBrawl
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Point;
             light.color = new Color(1f, 0.93f, 0.8f);
-            light.intensity = 4.5f;
+            light.intensity = 2.4f;
             light.range = 1.5f;
             light.cullingMask = 1 << layer;
             light.shadows = LightShadows.None;
@@ -63,7 +70,7 @@ namespace GooseBrawl
             var fill = fillGo.AddComponent<Light>();
             fill.type = LightType.Point;
             fill.color = new Color(0.95f, 0.97f, 1f);
-            fill.intensity = 2.2f;
+            fill.intensity = 1.2f;
             fill.range = 1.2f;
             fill.cullingMask = 1 << layer;
             fill.shadows = LightShadows.None;

@@ -1,6 +1,6 @@
 /** Content guard for model output: short, one audio tag at most, nothing that would embarrass anyone on stage. */
 export const ALLOWED_TAGS = ["laughs", "sighs", "whispers", "sarcastic", "excited", "curious", "mischievously", "exhales", "snorts"];
-const BANNED = [/\bkill\b/i, /\bdie\b/i, /\bstupid people\b/i, /\bfat\b/i, /\bugly\b/i, /\bsex/i, /\bdamn\b/i, /\bhell\b/i, /\bshit\b/i, /\bfuck/i, /\bnazi/i, /\bracis/i, /\bgun\b/i, /\bshoot\b/i, /\bsuicid/i];
+export const BANNED = [/\bkill\b/i, /\bdie\b/i, /\bstupid people\b/i, /\bfat\b/i, /\bugly\b/i, /\bsex/i, /\bdamn\b/i, /\bhell\b/i, /\bshit\b/i, /\bfuck/i, /\bnazi/i, /\bracis/i, /\bgun\b/i, /\bshoot\b/i, /\bsuicid/i];
 const MAX_LEN = 140;
 
 export function sanitizeLine(raw: string | undefined | null, fallback: string): { line: string; ok: boolean; reason?: string } {

@@ -72,6 +72,42 @@ namespace GooseBrawl
 
         public GameObject GameObject => Rect != null ? Rect.gameObject : null;
         public void SetActive(bool active) { if (Rect != null) Rect.gameObject.SetActive(active); }
+
+        /// <summary>Shrink to fit between max and min (labels whose text changes at runtime, e.g. a goose's name).</summary>
+        public void AutoSize(float max, float min)
+        {
+            if (Tmp != null) { Tmp.enableAutoSizing = true; Tmp.fontSizeMax = max; Tmp.fontSizeMin = min; Tmp.overflowMode = TextOverflowModes.Truncate; }
+            else if (Legacy != null) { Legacy.resizeTextForBestFit = true; Legacy.resizeTextMaxSize = Mathf.RoundToInt(max); Legacy.resizeTextMinSize = Mathf.RoundToInt(min); }
+        }
+    }
+
+    /// <summary>Text field wrapper (TMP_InputField when TextMeshPro is available, legacy InputField otherwise).</summary>
+    public class UIInput
+    {
+        public RectTransform Rect;
+        public TMP_InputField Tmp;
+        public InputField Legacy;
+
+        public string Text
+        {
+            get => Tmp != null ? Tmp.text : (Legacy != null ? Legacy.text : string.Empty);
+            set
+            {
+                if (Tmp != null) Tmp.text = value ?? "";
+                else if (Legacy != null) Legacy.text = value ?? "";
+            }
+        }
+
+        public bool IsFocused => Tmp != null ? Tmp.isFocused : (Legacy != null && Legacy.isFocused);
+
+        public bool Interactable
+        {
+            set
+            {
+                if (Tmp != null) Tmp.interactable = value;
+                else if (Legacy != null) Legacy.interactable = value;
+            }
+        }
     }
 
     /// <summary>Scales a button's holder down while pressed and plays the tap sound + haptic.</summary>
@@ -486,6 +522,60 @@ namespace GooseBrawl
             label = CreateLabel(face.transform, "Label", text, fontSize, UITheme.Brown);
             Stretch(label.Rect, 8f);
             return button;
+        }
+
+        /// <summary>
+        /// Single-line text field on the cream card: a light pill, brown type, a muted placeholder. The filter runs on every
+        /// change (e.g. upper-case and strip punctuation) so the field never shows what the board would reject.
+        /// </summary>
+        public static UIInput CreateInputField(Transform parent, string name, string placeholder, Vector2 size, float fontSize, int maxChars, Func<string, string> filter)
+        {
+            ResolveFonts();
+            var bg = CreatePill(parent, name, new Color(1f, 1f, 1f, 0.72f), size, true);
+            var input = new UIInput { Rect = bg.rectTransform };
+            var viewport = CreateRect(bg.transform, "Viewport");
+            Stretch(viewport);
+            viewport.offsetMin = new Vector2(30f, 6f);
+            viewport.offsetMax = new Vector2(-30f, -6f);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            var text = CreateLabel(viewport, "Text", "", fontSize, UITheme.Brown, true, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud);
+            Stretch(text.Rect);
+            var ph = CreateLabel(viewport, "Placeholder", placeholder, fontSize * 0.85f, UITheme.Muted, false, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud);
+            Stretch(ph.Rect);
+            if (UseTMP && text.Tmp != null)
+            {
+                text.Tmp.textWrappingMode = TextWrappingModes.NoWrap;
+                text.Tmp.overflowMode = TextOverflowModes.Overflow;
+                var f = bg.gameObject.AddComponent<TMP_InputField>();
+                f.targetGraphic = bg;
+                f.textViewport = viewport;
+                f.textComponent = text.Tmp;
+                f.placeholder = ph.Tmp;
+                f.characterLimit = maxChars;
+                f.lineType = TMP_InputField.LineType.SingleLine;
+                f.richText = false;
+                f.keyboardType = TouchScreenKeyboardType.ASCIICapable;
+                f.shouldHideMobileInput = false;
+                f.customCaretColor = true;
+                f.caretColor = UITheme.Brown;
+                f.selectionColor = new Color(UITheme.Yolk.r, UITheme.Yolk.g, UITheme.Yolk.b, 0.45f);
+                if (filter != null) f.onValueChanged.AddListener(v => { string c = filter(v); if (c != v) f.SetTextWithoutNotify(c); });
+                input.Tmp = f;
+            }
+            else if (text.Legacy != null)
+            {
+                var f = bg.gameObject.AddComponent<InputField>();
+                f.targetGraphic = bg;
+                f.textComponent = text.Legacy;
+                f.placeholder = ph.Legacy;
+                f.characterLimit = maxChars;
+                f.lineType = InputField.LineType.SingleLine;
+                f.keyboardType = TouchScreenKeyboardType.ASCIICapable;
+                f.shouldHideMobileInput = false;
+                if (filter != null) f.onValueChanged.AddListener(v => { string c = filter(v); if (c != v) f.SetTextWithoutNotify(c); });
+                input.Legacy = f;
+            }
+            return input;
         }
 
         /// <summary>Small glass button (secondary actions, toggles, pause).</summary>

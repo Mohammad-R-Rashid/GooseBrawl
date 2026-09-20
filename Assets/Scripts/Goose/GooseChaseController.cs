@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace GooseBrawl
 {
-    public enum GooseState { Idle, Walk, Run, AngryFlap, JumpAttack, Dash, Glare, Stunned, GameOver, Distracted, Eating, Flinched }
+    public enum GooseState { Idle, Walk, Run, AngryFlap, JumpAttack, Dash, Glare, Stunned, GameOver, Distracted, Eating, Flinched, NameCalled }
 
     /// <summary>
     /// The goose brain. Chases the player's horizontal position, escalates over time in four tiers
@@ -20,17 +20,17 @@ namespace GooseBrawl
     public class GooseChaseController : MonoBehaviour
     {
         [Header("Speeds (m/s) - real speed stays gentle; urgency comes from hops and animation")]
-        public float walkSpeed = 0.9f;
-        public float runSpeed = 1.1f;
+        public float walkSpeed = 0.95f;
+        public float runSpeed = 1.2f;
         public float maxChaseSpeed = 1.6f;
         [Tooltip("Seconds after the walk phase until the goose reaches max speed.")]
-        public float timeToMaxSpeed = 40f;
+        public float timeToMaxSpeed = 28f;
         [Tooltip("The goose only walks for this long after spawning (gives the player a head start).")]
-        public float walkPhaseDuration = 3f;
+        public float walkPhaseDuration = 2f;
         public float farCatchUpDistance = 5f;
         public float farCatchUpBoost = 1.25f;
         [Tooltip("Speed cap when the goose is right behind the player (a beat to turn around).")]
-        public float nearCapSpeed = 1.3f;
+        public float nearCapSpeed = 1.35f;
 
         [Header("Distances (m)")]
         public float catchDistance = 0.8f;
@@ -53,9 +53,9 @@ namespace GooseBrawl
 
         [Header("Escalation")]
         [Tooltip("Chase seconds at which tiers 1, 2 and 3 (rage) begin.")]
-        public float[] tierStartTimes = { 8f, 18f, 30f };
+        public float[] tierStartTimes = { 6f, 14f, 24f };
         [Tooltip("Seconds between flap-dashes per tier (tier 0 never dashes).")]
-        public float[] dashCooldownByTier = { 0f, 6.5f, 4.5f, 3f };
+        public float[] dashCooldownByTier = { 0f, 5.5f, 4f, 2.8f };
         public float dashMinDistance = 2.4f;
         public float dashMaxDistance = 6.5f;
         [Tooltip("A dash never lands closer to the player than this (dashes are theatre, lunges catch).")]
@@ -144,6 +144,12 @@ namespace GooseBrawl
         public float eatSeconds = 2.8f;
         public float breadReach = 0.38f;
         public float flinchSeconds = 1.2f;
+        [Tooltip("How long it freezes and stares after you shout its name.")]
+        public float nameCalledSeconds = 1.2f;
+        [Tooltip("After the flinch, how long it holds still waiting for the speech recogniser before moving on.")]
+        public float speechHoldMaxSeconds = 1.6f;
+        int m_ApologyCount;
+        Coroutine m_PhotoPose;
 
         void Awake()
         {
@@ -402,6 +408,7 @@ namespace GooseBrawl
             if (State == GooseState.Distracted) { UpdateDistracted(dt); return; }
             if (State == GooseState.Eating) { UpdateEating(dt); return; }
             if (State == GooseState.Flinched) { UpdateFlinched(dt); return; }
+            if (State == GooseState.NameCalled) { UpdateNameCalled(dt); return; }
 
             bool grace = Time.time < m_GraceUntil || NoCatch;
             if (!grace && DistanceToPlayer <= catchDistance && State != GooseState.Stunned)
@@ -490,7 +497,9 @@ namespace GooseBrawl
             Visual.Procedural.MoveSpeed01 = Mathf.Clamp01(spd / maxChaseSpeed);
             float tilt = State == GooseState.Run ? Mathf.Lerp(9f, 15f, Anger / 3f) : 3f;
             Visual.Procedural.BodyTilt = tilt * Mathf.Clamp01(spd / maxChaseSpeed) + (Rage ? 3f : 0f);
-            Visual.SetFeatherTrail(Anger >= 2 && spd > 0.5f);
+            // Feathers fly with the effort: a shed trail once it runs hard, bursts on sudden speed changes and hard turns.
+            Visual.SetFeatherTrail((Anger >= 2 && spd > 0.5f) || spd > 1.25f);
+            UpdateEffortFeathers(spd);
             UpdateRunFlaps(spd);
 
             if (spd > 0.1f && Time.time >= m_NextFootstep)
@@ -505,6 +514,32 @@ namespace GooseBrawl
             }
 
             UpdateHonks();
+        }
+
+        [Header("Effort feathers")]
+        [Tooltip("A speed change faster than this (m/s^2) sheds feathers.")]
+        public float featherAccelThreshold = 2.2f;
+        [Tooltip("A turn faster than this (deg/s) while moving sheds feathers.")]
+        public float featherTurnThresholdDeg = 220f;
+        float m_PrevEffortSpeed, m_NextEffortFeathers;
+        Vector3 m_PrevEffortHeading = Vector3.forward;
+
+        /// <summary>Feathers on sudden movement: hard accelerations, stops and sharp turns (rate limited).</summary>
+        void UpdateEffortFeathers(float spd)
+        {
+            float dt = Time.deltaTime;
+            if (dt <= 1e-4f) return;
+            float accel = (spd - m_PrevEffortSpeed) / dt;
+            Vector3 heading = Movement.Heading;
+            float turn = Vector3.Angle(heading, m_PrevEffortHeading) / dt;
+            m_PrevEffortSpeed = spd;
+            m_PrevEffortHeading = heading;
+            if (Time.time < m_NextEffortFeathers) return;
+            bool jolt = Mathf.Abs(accel) > featherAccelThreshold && (spd > 0.3f || accel < 0f);
+            bool hardTurn = turn > featherTurnThresholdDeg && spd > 0.5f;
+            if (!jolt && !hardTurn) return;
+            m_NextEffortFeathers = Time.time + 0.35f;
+            Visual.FeatherBurst((jolt && hardTurn ? 6 : 4) + Anger);
         }
 
         /// <summary>Bursts of wing flapping layered over the walk/run clips; more often and stronger as the tiers rise.</summary>
@@ -562,7 +597,9 @@ namespace GooseBrawl
             target = Mathf.Min(target, Mathf.Lerp(22000f, 4200f, far));
             float slowMo = m_Mgr.Audio != null ? m_Mgr.Audio.SlowMotionCutoff : 22000f;
             m_BehindCutoff = Mathf.Lerp(m_BehindCutoff, Mathf.Min(target, slowMo), 1f - Mathf.Exp(-dt * 6f));
-            m_VoiceLp.cutoffFrequency = m_BehindCutoff;
+            // Spoken lines are additionally band-limited (the cartoon voice); honks on the same source are not.
+            bool speaking = Voice != null && Voice.Speaking;
+            m_VoiceLp.cutoffFrequency = speaking && m_Mgr.Audio != null ? Mathf.Min(m_BehindCutoff, m_Mgr.Audio.voiceLowPassHz) : m_BehindCutoff;
             m_BodyLp.cutoffFrequency = m_BehindCutoff;
         }
 
@@ -662,7 +699,7 @@ namespace GooseBrawl
         /// <summary>A bread roll landed: the goose goes for it instead of the player, eats, then comes back angrier.</summary>
         public bool Distract(BreadController bread)
         {
-            if (bread == null || State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || FlyingIn || Glaring) return false;
+            if (bread == null || State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || State == GooseState.NameCalled || FlyingIn || Glaring) return false;
             m_Bread = bread;
             SetState(GooseState.Distracted);
             Visual.Procedural.Flapping = false;
@@ -749,7 +786,7 @@ namespace GooseBrawl
         /// <summary>The player shouted: a flinch, then it comes back at you with a dash.</summary>
         public bool Flinch()
         {
-            if (State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || State == GooseState.Flinched || FlyingIn || Glaring) return false;
+            if (State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || State == GooseState.Flinched || State == GooseState.NameCalled || FlyingIn || Glaring) return false;
             m_Bread = null;
             SetState(GooseState.Flinched);
             m_StateTimer = flinchSeconds;
@@ -770,8 +807,14 @@ namespace GooseBrawl
         void UpdateFlinched(float dt)
         {
             m_StateTimer -= dt;
-            Movement.SetDesired(m_RecoveryDir, walkSpeed * 0.6f);
-            if (m_StateTimer > 0f) return;
+            if (m_StateTimer > 0f) { Movement.SetDesired(m_RecoveryDir, walkSpeed * 0.6f); return; }
+            // The phone is still working out what you shouted: hold still (head swaying, "processing") until it knows or the cap passes.
+            if (m_Mgr.Yell != null && m_Mgr.Yell.RecognitionPending && m_StateTimer > -speechHoldMaxSeconds)
+            {
+                Movement.Stop();
+                Visual.Procedural.PauseToThink(0.2f);
+                return;
+            }
             Movement.ClearStuck();
             Visual.Procedural.Flapping = false;
             SetState(GooseState.Walk);
@@ -780,6 +823,51 @@ namespace GooseBrawl
             m_NextDash = Time.time + 0.8f;
             m_NextReplan = 0f;
             m_NextFlap = Time.time + angryFlapInterval;
+        }
+
+        /// <summary>You shouted its NAME: it freezes, snaps its head to the phone, one dramatic honk, then it comes for you.</summary>
+        public bool NameCalled()
+        {
+            if (State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || State == GooseState.NameCalled || FlyingIn || Glaring) return false;
+            m_Bread = null;
+            SetState(GooseState.NameCalled);
+            m_StateTimer = nameCalledSeconds;
+            Movement.Stop();
+            Movement.ClearStuck();
+            Visual.Play(GooseAnimationResolver.Slot.Idle, 0.08f, 1f);
+            Visual.Procedural.Flapping = false;
+            Visual.Procedural.SnapLook();
+            Visual.Procedural.SquashStretch = 1.15f;
+            m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Dramatic, voiceSource, Danger01);
+            Visual.Procedural.TriggerHonkGesture();
+            HonkCount++;
+            m_Mgr.UI.ShowHonk(transform.position, "HONK?", 1.4f, 1.2f);
+            m_Mgr.UI.ShowSubtitle("...WHAT.", 1.8f);
+            m_Mgr.Haptics.Play(HapticsService.Pattern.LungeWindup);
+            return true;
+        }
+
+        void UpdateNameCalled(float dt)
+        {
+            m_StateTimer -= dt;
+            Movement.FaceTowards(m_Mgr.Player.FlatPosition - transform.position, dt);
+            if (m_StateTimer > 0f) return;
+            SetState(GooseState.Walk);
+            m_DashOnce = true;
+            m_NextDash = Time.time;
+            m_NextReplan = 0f;
+            m_NextHonk = Time.time + 1.5f;
+            m_NextFlap = Time.time + angryFlapInterval;
+        }
+
+        /// <summary>"Sorry" / "please" / "stop": noted, not accepted.</summary>
+        public void RefuseApology()
+        {
+            if (State == GooseState.GameOver || FlyingIn || Glaring) return;
+            m_ApologyCount++;
+            m_Mgr.UI.ShowSubtitle(m_ApologyCount % 2 == 1 ? "APOLOGY NOT ACCEPTED." : "NO.", 1.8f);
+            if (State != GooseState.Flinched) Honk(AudioManager.HonkKind.Angry, force: true); // the held flinch exits with its own honk
+            m_Mgr.Haptics.Transient(0.6f, 0.7f);
         }
 
         void EnterRage()
@@ -830,6 +918,54 @@ namespace GooseBrawl
             Honk(AudioManager.HonkKind.Dramatic, force: true);
             yield return new WaitForSeconds(1.4f);
             if (death == null) Visual.Play(GooseAnimationResolver.Slot.Idle, 0.4f, 0.8f);
+        }
+
+        // ------------------------------------------------------------------ photo mode
+        /// <summary>Results screen: stay put, turn to follow the player, flap and honk every few seconds so the photo is alive.</summary>
+        public void BeginPhotoPose()
+        {
+            if (State != GooseState.GameOver || m_PhotoPose != null) return;
+            m_PhotoPose = StartCoroutine(PhotoPoseRoutine());
+        }
+
+        public void EndPhotoPose()
+        {
+            if (m_PhotoPose != null) StopCoroutine(m_PhotoPose);
+            m_PhotoPose = null;
+            if (State != GooseState.GameOver) return;
+            Visual.Procedural.Flapping = false;
+            Visual.Play(GooseAnimationResolver.Slot.Idle, 0.3f, 1f);
+        }
+
+        IEnumerator PhotoPoseRoutine()
+        {
+            // State stays GameOver, so Update() keeps returning early: no movement, no catch. Honks bypass Honk() so HonkCount is final.
+            Movement.ExternalControl = true;
+            for (int beat = 0; ; beat++)
+            {
+                for (float t = 0f; t < 3f; t += Time.deltaTime)
+                {
+                    Movement.FaceTowards(m_Mgr.Player.FlatPosition - transform.position, Time.deltaTime);
+                    yield return null;
+                }
+                if (beat % 2 == 0)
+                {
+                    Visual.Play(GooseAnimationResolver.Slot.Flap, 0.1f, 1.2f, true);
+                    Visual.Procedural.Flapping = true;
+                    Visual.Procedural.FlapIntensity = 1f;
+                    m_Mgr.Audio.PlayFlap(bodySource);
+                    Visual.FeatherBurst(6);
+                    yield return new WaitForSeconds(1.1f);
+                    Visual.Procedural.Flapping = false;
+                    Visual.Play(GooseAnimationResolver.Slot.Idle, 0.3f, 1f);
+                }
+                else
+                {
+                    m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Angry, voiceSource, 0.6f);
+                    Visual.Procedural.TriggerHonkGesture();
+                    m_Mgr.UI.ShowHonk(transform.position, "HONK!!", 0.9f, 1.1f);
+                }
+            }
         }
 
         void EnterAngryFlap(float duration, bool quiet = false)

@@ -218,6 +218,8 @@ namespace GooseBrawl
         }
 
         public void PlayButtonTap() => PlayUI(m_ButtonTap, 0.6f, Random.Range(0.95f, 1.05f));
+        /// <summary>Camera shutter for the photo with the goose: the tap, brighter and sharper.</summary>
+        public void PlayShutter() => PlayUI(m_ButtonTap, 0.9f, 1.6f);
         public void PlayEggPickup() => PlayUI(m_EggPickup, 0.9f, Random.Range(0.97f, 1.03f));
 
         /// <summary>Twigs settling, played where the nest is.</summary>
@@ -343,13 +345,19 @@ namespace GooseBrawl
             if (focus) EnsurePlaybackSession("focus");
         }
 
-        [Header("Goose voice character (spoken lines; tune in play mode)")]
-        [Tooltip("Pitch multiplier on spoken lines (1 = as recorded; 1.1 = a little goosier).")]
-        [Range(0.7f, 1.5f)] public float voicePitch = 1.1f;
-        [Tooltip("High-pass cutoff on the goose's voice source in Hz (0 = off; 220 thins it toward a beak).")]
+        [Header("Goose voice character (spoken lines only; tune in play mode)")]
+        [Tooltip("Pitch multiplier on spoken lines (1 = as recorded; 1.3 = squeaky cartoon bird, lines play faster too).")]
+        [Range(0.7f, 1.6f)] public float voicePitch = 1.1f;
+        [Tooltip("High-pass cutoff on spoken lines in Hz (0 = off; 380 thins it toward a beak).")]
         public float voiceHighPassHz = 220f;
-        [Tooltip("Distortion on the goose's voice source (0 = off; 0.1 = a little rasp).")]
+        [Tooltip("Distortion on spoken lines (0 = off; 0.25 = a raspy quack).")]
         [Range(0f, 0.6f)] public float voiceDistortion = 0.1f;
+        [Tooltip("Low-pass cap on spoken lines in Hz (band-limits toward a quack; 22000 = off).")]
+        public float voiceLowPassHz = 22000f;
+        [Tooltip("Chorus warble on spoken lines: depth 0-1 (0 = off), rate in Hz, wet mix.")]
+        [Range(0f, 1f)] public float voiceWarbleDepth = 0f;
+        public float voiceWarbleRateHz = 5.5f;
+        [Range(0f, 1f)] public float voiceWarbleMix = 0.45f;
 
         /// <summary>When the goose last honked (the yell detector ignores the mic for a moment after it).</summary>
         public float LastHonkTime { get; private set; } = -99f;

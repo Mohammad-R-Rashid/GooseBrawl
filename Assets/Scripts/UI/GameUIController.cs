@@ -32,6 +32,17 @@ namespace GooseBrawl
         UILabel m_StartBest, m_Message, m_MockHint, m_Tracking;
         UILabel m_Time, m_Honks, m_Best, m_DangerLabel, m_TurnAround;
         UILabel m_GoTitle, m_GoTime, m_GoScore, m_GoBest, m_GoGrudge;
+        UILabel m_GoRecap, m_PhotoLabel, m_PostLabel;
+        RectTransform m_Photo, m_Card, m_BoardRow, m_ActionRow, m_MoveNestButton, m_ShareButton, m_PhotoButton, m_Ticker;
+        readonly UILabel[] m_TickerName = new UILabel[3];
+        readonly UILabel[] m_TickerGoose = new UILabel[3];
+        readonly UILabel[] m_TickerTime = new UILabel[3];
+        UIInput m_NameInput;
+        Button m_PostButton;
+        int m_BoardToken;
+        CanvasGroup m_OverlayGroup, m_StampGroup;
+        UILabel m_StampLine1, m_StampLine2;
+        const string PlayerNameKey = "GooseBrawl.PlayerName";
         UILabel m_Subtitle;
         RectTransform m_SubtitlePill, m_BreadButton;
         Image m_BreadRing, m_BreadFace;
@@ -69,6 +80,8 @@ namespace GooseBrawl
         {
             m_Canvas = UIFactory.CreateCanvas("GooseBrawl Canvas");
             m_Canvas.transform.SetParent(transform, false);
+            // One group over everything so the photo capture can hide the whole overlay for a frame (the HUD is a nested canvas).
+            m_OverlayGroup = m_Canvas.gameObject.AddComponent<CanvasGroup>();
 
             m_ShakeRoot = UIFactory.Stretch(UIFactory.CreateRect(m_Canvas.transform, "ShakeRoot"));
 
@@ -84,6 +97,8 @@ namespace GooseBrawl
             BuildCoaching();
             BuildPaused();
             BuildCarry();
+            BuildPhoto();
+            BuildStamp();
 
             // Locator: live from the fly-in through the chase, above the screens.
             m_Locator = GooseLocator.Create(m_Safe);
@@ -121,7 +136,7 @@ namespace GooseBrawl
             m_TrackingPill.gameObject.SetActive(false);
 
 #if UNITY_EDITOR
-            m_MockHint = UIFactory.CreateLabel(m_Safe, "MockHint", "editor mock  ·  WASD move  ·  Q/E turn  ·  right-drag look  ·  SPACE start/steal/resume  ·  R restart  ·  B bread  ·  Y yell", 19f, UITheme.Ink, false, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            m_MockHint = UIFactory.CreateLabel(m_Safe, "MockHint", "editor mock  ·  WASD move  ·  Q/E turn  ·  right-drag look  ·  SPACE start/steal/resume  ·  R restart  ·  B bread  ·  Y yell  ·  N name  ·  M sorry  ·  P photo", 19f, UITheme.Ink, false, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Place(m_MockHint.Rect, new Vector2(0.5f, 0f), new Vector2(0f, 8f), new Vector2(1040f, 36f));
             m_MockHint.SetActive(false);
 #endif
@@ -201,8 +216,25 @@ namespace GooseBrawl
             UIFactory.Stretch(m_StartBest.Rect, 8f);
 
             BottomButton(m_Start, "StartButton", "START", () => GooseGameManager.Instance.OnStartPressed(), 260f);
-            SmallGlassButton(m_Start, "HowToPlay", "HOW TO PLAY", new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(420f, 84f),
-                () => GooseGameManager.Instance.OnHowToPlayPressed(), out _);
+            // No HOW TO PLAY: the card spelled out that a goose was coming.
+
+            // Booth ticker: today's top three from the Goose Board (filled by ShowStart when the Worker answers).
+            var ticker = UIFactory.CreateGlassPill(m_Start, "Ticker", new Vector2(760f, 176f), strong: true);
+            UIFactory.Place(ticker.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 64f), new Vector2(760f, 176f));
+            m_Ticker = ticker.rectTransform;
+            var tickerTitle = UIFactory.CreateLabel(ticker.transform, "Title", "TOP GEESE TODAY", 22f, UITheme.Yolk, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            UIFactory.Place(tickerTitle.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -12f), new Vector2(700f, 32f));
+            for (int i = 0; i < 3; i++)
+            {
+                float y = -52f - i * 40f;
+                m_TickerName[i] = UIFactory.CreateLabel(ticker.transform, "Name" + i, "", 28f, UITheme.Ink, true, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud, autoSize: true);
+                UIFactory.Place(m_TickerName[i].Rect, new Vector2(0f, 1f), new Vector2(40f, y), new Vector2(320f, 38f));
+                m_TickerGoose[i] = UIFactory.CreateLabel(ticker.transform, "Goose" + i, "", 24f, UITheme.InkMuted, false, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud, autoSize: true);
+                UIFactory.Place(m_TickerGoose[i].Rect, new Vector2(0f, 1f), new Vector2(372f, y), new Vector2(200f, 38f));
+                m_TickerTime[i] = UIFactory.CreateLabel(ticker.transform, "Time" + i, "", 28f, UITheme.Yolk, true, TextAnchor.MiddleRight, default, 0f, UIFont.Hud);
+                UIFactory.Place(m_TickerTime[i].Rect, new Vector2(1f, 1f), new Vector2(-40f, y), new Vector2(140f, 38f));
+            }
+            m_Ticker.gameObject.SetActive(false);
 
             // Settings toggles, top right.
             SmallGlassButton(m_Start, "SoundToggle", "SOUND ON", new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(250f, 78f), ToggleSound, out m_SoundToggle);
@@ -244,6 +276,10 @@ namespace GooseBrawl
         void BuildHUD()
         {
             m_HUD = MakeScreen("HUD");
+            // Own nested canvas: the timer, meter and bread button change every frame, so only this batch is rebuilt,
+            // not the whole overlay. The raycaster keeps the bread button tappable inside the nested canvas.
+            m_HUD.gameObject.AddComponent<Canvas>();
+            m_HUD.gameObject.AddComponent<GraphicRaycaster>();
 
             m_Time = UIFactory.CreateLabel(m_HUD, "Time", "0:00.0", 100f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Place(m_Time.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -26f), new Vector2(700f, 120f));
@@ -294,6 +330,8 @@ namespace GooseBrawl
             var meter = UIFactory.CreateGlassPill(m_HUD, "Meter", new Vector2(880f, 118f));
             UIFactory.Place(meter.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(880f, 118f));
             m_MeterPill = meter.rectTransform;
+            // Hidden: the locator (distance + arrow) already says where the goose is; a filling bar read as gimmicky.
+            m_MeterPill.gameObject.SetActive(false);
             m_DangerLabel = UIFactory.CreateLabel(meter.transform, "DangerLabel", "GOOSE INCOMING", 34f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Place(m_DangerLabel.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -18f), new Vector2(820f, 50f));
             var track = UIFactory.CreatePill(meter.transform, "Track", new Color(1f, 1f, 1f, 0.12f), new Vector2(760f, 8f), false);
@@ -325,27 +363,106 @@ namespace GooseBrawl
             UIFactory.Place(m_GoGrudge.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -530f), new Vector2(900f, 56f));
             m_GoGrudge.SetActive(false);
 
-            var card = UIFactory.CreatePanel(m_GameOver, "ResultCard", UITheme.CreamPanel);
-            UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0f, -40f), new Vector2(820f, 440f));
+            // The card hangs from its top edge (a fixed distance above the buttons) so it can shrink from the bottom when the board row is hidden.
+            m_Card = UIFactory.CreatePanel(m_GameOver, "ResultCard", UITheme.CreamPanel);
+            UIFactory.Place(m_Card, new Vector2(0.5f, 0.5f), new Vector2(0f, 320f), new Vector2(820f, 600f));
+            m_Card.pivot = new Vector2(0.5f, 1f);
+            m_Card.anchoredPosition = new Vector2(0f, 320f);
+            var card = m_Card;
             var cardImg = card.GetComponent<Image>();
             cardImg.pixelsPerUnitMultiplier = 0.55f;
             m_GoTime = UIFactory.CreateLabel(card, "Time", "You survived", 40f, UITheme.Brown, false);
             UIFactory.Place(m_GoTime.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -34f), new Vector2(780f, 60f));
             m_GoScore = UIFactory.CreateLabel(card, "Score", "0:00.0", 118f, UITheme.Brown, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Place(m_GoScore.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -96f), new Vector2(780f, 150f));
-            m_GoBest = UIFactory.CreateLabel(card, "Best", "HONKS 0   ·   BEST 0:00.0", 32f, UITheme.Muted, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
-            UIFactory.Place(m_GoBest.Rect, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(780f, 60f));
 
-            // Straddles the card's top-right corner: clear of the text, inside the screen on narrow phones.
-            m_NewBestStamp = UIFactory.CreatePill(card, "NewBest", UITheme.Danger, new Vector2(300f, 78f), false);
-            UIFactory.Place(m_NewBestStamp.rectTransform, new Vector2(1f, 1f), new Vector2(-40f, 36f), new Vector2(300f, 78f));
-            m_NewBestStamp.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 7f);
-            var stampLabel = UIFactory.CreateLabel(m_NewBestStamp.transform, "Text", "NEW BEST!", 40f, UITheme.White);
+            // Stack under the big time: NEW BEST band, the run recap, the stats line, the board row.
+            m_NewBestStamp = UIFactory.CreatePill(card, "NewBest", UITheme.Danger, new Vector2(300f, 70f), false);
+            UIFactory.Place(m_NewBestStamp.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -252f), new Vector2(300f, 70f));
+            m_NewBestStamp.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -2f);
+            var stampLabel = UIFactory.CreateLabel(m_NewBestStamp.transform, "Text", "NEW BEST!", 36f, UITheme.White);
             UIFactory.Stretch(stampLabel.Rect, 6f);
+            m_GoRecap = UIFactory.CreateLabel(card, "Recap", "", 28f, UITheme.Brown, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud, autoSize: true);
+            UIFactory.Place(m_GoRecap.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -334f), new Vector2(760f, 44f));
+            m_GoBest = UIFactory.CreateLabel(card, "Best", "HONKS 0   ·   BEST 0:00.0", 32f, UITheme.Muted, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            UIFactory.Place(m_GoBest.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -386f), new Vector2(780f, 50f));
+
+            // Goose Board row: your name + POST TO BOARD. Hidden (and the card shortened) when the Worker is unreachable.
+            m_BoardRow = UIFactory.CreateRect(card, "BoardRow");
+            UIFactory.Place(m_BoardRow, new Vector2(0.5f, 1f), new Vector2(0f, -456f), new Vector2(760f, 84f));
+            m_NameInput = UIFactory.CreateInputField(m_BoardRow, "Name", "YOUR NAME FOR THE BOARD", new Vector2(470f, 84f), 30f, 12, v => CleanName(v, false));
+            UIFactory.Place(m_NameInput.Rect, new Vector2(0f, 0.5f), Vector2.zero, new Vector2(470f, 84f));
+            m_PostButton = UIFactory.CreateButton(m_BoardRow, "PostBoard", "POST TO BOARD", new Vector2(270f, 84f), 26f, out m_PostLabel);
+            UIFactory.Place(m_PostButton.transform.parent.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), Vector2.zero, new Vector2(270f, 84f));
+            m_PostButton.onClick.AddListener(OnPostToBoardPressed);
 
             BottomButton(m_GameOver, "RunAgainButton", "RUN AGAIN", () => GooseGameManager.Instance.OnRunAgainPressed(), 260f);
-            SmallGlassButton(m_GameOver, "MoveNest", "MOVE NEST", new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(420f, 84f),
+            // Secondary row: MOVE NEST · SHARE · PHOTO WITH <goose>. LayoutActionRow centres them (SHARE only when a shot exists).
+            m_ActionRow = UIFactory.CreateRect(m_GameOver, "ActionRow");
+            UIFactory.Place(m_ActionRow, new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(960f, 84f));
+            m_MoveNestButton = SmallGlassButton(m_ActionRow, "MoveNest", "MOVE NEST", new Vector2(0.5f, 0f), Vector2.zero, new Vector2(250f, 84f),
                 () => GooseGameManager.Instance.OnMoveNestPressed(), out _);
+            m_ShareButton = SmallGlassButton(m_ActionRow, "Share", "SHARE", new Vector2(0.5f, 0f), Vector2.zero, new Vector2(200f, 84f),
+                () => GooseGameManager.Instance.OnSharePressed(), out _);
+            m_PhotoButton = SmallGlassButton(m_ActionRow, "Photo", "PHOTO WITH THE GOOSE", new Vector2(0.5f, 0f), Vector2.zero, new Vector2(380f, 84f),
+                () => GooseGameManager.Instance.OnPhotoPressed(), out m_PhotoLabel);
+            m_PhotoLabel.AutoSize(30f, 18f);
+            LayoutActionRow(false);
+        }
+
+        /// <summary>Photo mode: the card slides away, a shutter and BACK remain; the goose poses in the room.</summary>
+        void BuildPhoto()
+        {
+            m_Photo = MakeScreen("PhotoScreen");
+            TopPill(m_Photo, "Walk around it. Tap the shutter.", null, out _);
+            var shutter = UIFactory.CreateImage(m_Photo, "Shutter", UIFactory.Circle, UITheme.GlassStrong, true);
+            UIFactory.Place(shutter.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 230f), new Vector2(164f, 164f));
+            shutter.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            shutter.rectTransform.anchoredPosition = new Vector2(0f, 230f);
+            var inner = UIFactory.CreateImage(shutter.transform, "Inner", UIFactory.Circle, UITheme.Yolk);
+            UIFactory.Place(inner.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(112f, 112f));
+            var btn = shutter.gameObject.AddComponent<Button>();
+            btn.targetGraphic = shutter;
+            var bc = btn.colors; bc.normalColor = Color.white; bc.highlightedColor = Color.white; bc.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f); bc.fadeDuration = 0.05f; btn.colors = bc;
+            btn.onClick.AddListener(() => GooseGameManager.Instance.OnShutterPressed());
+            var press = shutter.gameObject.AddComponent<UIButtonPress>();
+            press.target = shutter.rectTransform;
+            SmallGlassButton(m_Photo, "PhotoBack", "BACK", new Vector2(0f, 0f), new Vector2(40f, 190f), new Vector2(200f, 84f),
+                () => GooseGameManager.Instance.OnPhotoBackPressed(), out _);
+        }
+
+        /// <summary>
+        /// The brand stamp on every photo: its own canvas above the overlay, always active at alpha 0 (so the glyphs exist
+        /// before the capture frame) and shown only for the one frame that is captured.
+        /// </summary>
+        void BuildStamp()
+        {
+            var canvas = UIFactory.CreateCanvas("Stamp Canvas");
+            canvas.transform.SetParent(transform, false);
+            canvas.sortingOrder = 20;
+            var raycaster = canvas.GetComponent<GraphicRaycaster>();
+            if (raycaster != null) raycaster.enabled = false;
+            m_StampGroup = canvas.gameObject.AddComponent<CanvasGroup>();
+            m_StampGroup.alpha = 0f;
+            m_StampGroup.blocksRaycasts = false;
+            m_StampGroup.interactable = false;
+            var safe = UIFactory.Stretch(UIFactory.CreateRect(canvas.transform, "SafeArea"));
+            safe.gameObject.AddComponent<SafeAreaFitter>();
+
+            var panel = UIFactory.CreatePanel(safe, "StampPanel", UITheme.CreamPanel);
+            UIFactory.Place(panel, new Vector2(0.5f, 0f), new Vector2(0f, 64f), new Vector2(900f, 260f));
+            panel.GetComponent<Image>().pixelsPerUnitMultiplier = 0.55f;
+            var egg = UIFactory.CreateImage(panel, "Egg", UIFactory.Egg, UITheme.Yolk);
+            UIFactory.Place(egg.rectTransform, new Vector2(0f, 0.5f), new Vector2(44f, 0f), new Vector2(116f, 146f));
+            egg.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 8f);
+            var word = UIFactory.CreateLabel(panel, "Wordmark", "GOOSED.", 84f, UITheme.Brown, true, TextAnchor.MiddleLeft, default, 0f, UIFont.Display);
+            UIFactory.Place(word.Rect, new Vector2(0f, 1f), new Vector2(190f, -22f), new Vector2(480f, 100f));
+            var footer = UIFactory.CreateLabel(panel, "Footer", "HACK THE NORTH 2026", 22f, UITheme.Muted, true, TextAnchor.MiddleRight, default, 0f, UIFont.Hud);
+            UIFactory.Place(footer.Rect, new Vector2(1f, 1f), new Vector2(-44f, -44f), new Vector2(360f, 32f));
+            m_StampLine1 = UIFactory.CreateLabel(panel, "Line1", "", 28f, UITheme.Muted, true, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud, autoSize: true);
+            UIFactory.Place(m_StampLine1.Rect, new Vector2(0f, 0f), new Vector2(190f, 98f), new Vector2(670f, 40f));
+            m_StampLine2 = UIFactory.CreateLabel(panel, "Line2", "", 48f, UITheme.Brown, true, TextAnchor.MiddleLeft, default, 0f, UIFont.Hud, autoSize: true);
+            UIFactory.Place(m_StampLine2.Rect, new Vector2(0f, 0f), new Vector2(190f, 34f), new Vector2(670f, 64f));
         }
 
         /// <summary>The carry phase: a glass pill with the grip bar. Your movement drains it.</summary>
@@ -457,6 +574,7 @@ namespace GooseBrawl
             m_Coaching.gameObject.SetActive(false);
             m_Paused.gameObject.SetActive(false);
             m_Carry.gameObject.SetActive(false);
+            if (m_Photo != null) m_Photo.gameObject.SetActive(false);
             m_HudActive = false;
         }
 
@@ -470,6 +588,26 @@ namespace GooseBrawl
 #endif
             RefreshToggles();
             StartCoroutine(PopIn(m_TitleGroup, 0.45f));
+            // Fire-and-forget: the board ticker fills in when (if) the Worker answers; START never waits.
+            if (m_Ticker != null) m_Ticker.gameObject.SetActive(false);
+            var mgr = GooseGameManager.Instance;
+            if (mgr != null) mgr.FetchBoardTop(3, rows => { if (m_Start != null && m_Start.gameObject.activeSelf) FillTicker(rows); });
+        }
+
+        void FillTicker(GooseBrainClient.BoardRowDto[] rows)
+        {
+            if (m_Ticker == null) return;
+            for (int i = 0; i < 3; i++)
+            {
+                bool has = rows != null && i < rows.Length && rows[i] != null;
+                m_TickerName[i].SetActive(has); m_TickerGoose[i].SetActive(has); m_TickerTime[i].SetActive(has);
+                if (!has) continue;
+                var r = rows[i];
+                m_TickerName[i].Text = (i + 1) + "   " + (string.IsNullOrEmpty(r.name) ? "SOMEONE" : r.name);
+                m_TickerGoose[i].Text = string.IsNullOrEmpty(r.goose) ? "" : (r.outcome == "OUTLASTED" ? "outlasted " : "vs ") + r.goose;
+                m_TickerTime[i].Text = ScoreManager.FormatTime(r.seconds);
+            }
+            m_Ticker.gameObject.SetActive(rows != null && rows.Length > 0);
         }
 
         void RefreshToggles()
@@ -533,7 +671,8 @@ namespace GooseBrawl
             HideAll();
             m_HUD.gameObject.SetActive(true);
             m_HudActive = true;
-            StartCoroutine(PopIn(m_MeterPill, 0.3f));
+            m_HudDeciseconds = -1; m_HudHonks = -1; m_HudDodges = -1; m_HudBest = -1f;
+            if (m_MeterPill.gameObject.activeSelf) StartCoroutine(PopIn(m_MeterPill, 0.3f));
         }
 
         public void ShowPaused()
@@ -549,10 +688,10 @@ namespace GooseBrawl
 
         public void ShowGameOver(string title, float time, int score, float bestTime, int bestScore, bool newBest)
         {
-            ShowGameOver(title, time, score, 0, bestTime, bestScore, newBest, false, "");
+            ShowGameOver(title, time, score, 0, bestTime, bestScore, newBest, false, "", default);
         }
 
-        public void ShowGameOver(string title, float time, int honks, int dodges, float bestTime, int bestScore, bool newBest, bool won, string grudgeLine)
+        public void ShowGameOver(string title, float time, int honks, int dodges, float bestTime, int bestScore, bool newBest, bool won, string grudgeLine, RoundRecap recap)
         {
             HideAll();
             m_GameOver.gameObject.SetActive(true);
@@ -563,8 +702,121 @@ namespace GooseBrawl
             m_GoGrudge.Text = grudgeLine ?? "";
             m_GoGrudge.SetActive(!string.IsNullOrEmpty(grudgeLine));
             m_NewBestStamp.gameObject.SetActive(newBest);
+            string strip = RecapLine(recap);
+            m_GoRecap.Text = strip;
+            m_GoRecap.SetActive(strip.Length > 0);
+
+            // Board row only when the Worker is reachable; the card shortens without it.
+            var mgr = GooseGameManager.Instance;
+            bool canPost = mgr != null && mgr.BoardAvailable;
+            m_BoardToken++;
+            m_BoardRow.gameObject.SetActive(canPost);
+            m_Card.sizeDelta = new Vector2(820f, canPost ? 600f : 500f);
+            if (canPost)
+            {
+                m_NameInput.Text = PlayerPrefs.GetString(PlayerNameKey, "");
+                m_NameInput.Interactable = true;
+                m_PostLabel.Text = "POST TO BOARD";
+                m_PostButton.interactable = true;
+            }
+            m_PhotoLabel.Text = "PHOTO WITH " + (string.IsNullOrEmpty(recap.GooseName) ? "THE GOOSE" : recap.GooseName);
+            LayoutActionRow(recap.HasShot);
             StartCoroutine(PopIn(m_GoTitle.Rect, 0.4f));
             if (newBest) StartCoroutine(PopIn(m_NewBestStamp.rectTransform, 0.5f));
+        }
+
+        static string RecapLine(in RoundRecap r)
+        {
+            var parts = new System.Collections.Generic.List<string>(4);
+            if (r.Dashes > 0) parts.Add("DASHES SURVIVED " + r.Dashes);
+            if (r.LungesSurvived > 0) parts.Add("LUNGES SURVIVED " + r.LungesSurvived);
+            if (r.Breads > 0) parts.Add("BREAD " + r.Breads);
+            if (r.Rage) parts.Add("RAGE REACHED");
+            return string.Join("   ·   ", parts);
+        }
+
+        /// <summary>MOVE NEST · SHARE · PHOTO, centred as a group; SHARE drops out when there is nothing to share.</summary>
+        void LayoutActionRow(bool share)
+        {
+            if (m_ShareButton.gameObject.activeSelf != share) m_ShareButton.gameObject.SetActive(share);
+            const float gap = 24f;
+            float wMove = 250f, wShare = 200f, wPhoto = 380f;
+            float total = wMove + gap + wPhoto + (share ? wShare + gap : 0f);
+            float x = -total * 0.5f;
+            m_MoveNestButton.anchoredPosition = new Vector2(x + wMove * 0.5f, 0f); x += wMove + gap;
+            if (share) { m_ShareButton.anchoredPosition = new Vector2(x + wShare * 0.5f, 0f); x += wShare + gap; }
+            m_PhotoButton.anchoredPosition = new Vector2(x + wPhoto * 0.5f, 0f);
+        }
+
+        void OnPostToBoardPressed()
+        {
+            var mgr = GooseGameManager.Instance;
+            if (mgr == null || m_NameInput == null) return;
+            string name = CleanName(m_NameInput.Text, true);
+            if (string.IsNullOrEmpty(name)) name = "SOMEONE";
+            m_NameInput.Text = name;
+            PlayerPrefs.SetString(PlayerNameKey, name);
+            PlayerPrefs.Save();
+            m_NameInput.Interactable = false;
+            m_PostButton.interactable = false;
+            m_PostLabel.Text = "POSTING...";
+            int token = m_BoardToken;
+            mgr.PostRunToBoard(name, rank =>
+            {
+                if (token != m_BoardToken || m_PostLabel == null) return; // a later round's card is up
+                if (rank > 0) m_PostLabel.Text = "#" + rank + " ON THE BOARD";
+                else { m_PostLabel.Text = "RETRY POST"; m_PostButton.interactable = true; m_NameInput.Interactable = true; }
+            });
+        }
+
+        /// <summary>Board names: A-Z, 0-9, single spaces, 12 characters. While typing a trailing space is allowed.</summary>
+        static string CleanName(string s, bool final)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new System.Text.StringBuilder(s.Length);
+            foreach (char c in s.ToUpperInvariant())
+            {
+                if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) sb.Append(c);
+                else if (c == ' ' && sb.Length > 0 && sb[sb.Length - 1] != ' ') sb.Append(' ');
+            }
+            string r = sb.ToString();
+            if (final) r = r.Trim();
+            return r.Length > 12 ? r.Substring(0, 12) : r;
+        }
+
+        public bool TextEntryFocused => m_NameInput != null && m_NameInput.IsFocused;
+        public bool PhotoModeActive => m_Photo != null && m_Photo.gameObject.activeSelf;
+
+        /// <summary>Hide every overlay for the captured frame. A CanvasGroup, not Canvas.enabled: the HUD is a nested canvas and would keep drawing.</summary>
+        public void SetOverlayVisible(bool visible)
+        {
+            if (m_OverlayGroup != null) m_OverlayGroup.alpha = visible ? 1f : 0f;
+        }
+
+        public void ShowStamp(string line1, string line2)
+        {
+            if (m_StampGroup == null) return;
+            m_StampLine1.Text = line1 ?? "";
+            m_StampLine2.Text = line2 ?? "";
+            m_StampGroup.alpha = 1f;
+        }
+
+        public void HideStamp()
+        {
+            if (m_StampGroup != null) m_StampGroup.alpha = 0f;
+        }
+
+        public void ShowPhotoMode()
+        {
+            HideAll();
+            m_Photo.gameObject.SetActive(true);
+        }
+
+        /// <summary>Back from photo mode: the card returns with its numbers untouched.</summary>
+        public void ShowResultsAgain()
+        {
+            m_Photo.gameObject.SetActive(false);
+            m_GameOver.gameObject.SetActive(true);
         }
 
         public void UpdateHUD(float time, int honks, float bestTime)
@@ -572,12 +824,21 @@ namespace GooseBrawl
             UpdateHUD(time, honks, 0, bestTime);
         }
 
+        int m_HudDeciseconds = -1, m_HudHonks = -1, m_HudDodges = -1;
+        float m_HudBest = -1f;
+
         public void UpdateHUD(float time, int honks, int dodges, float bestTime)
         {
             if (!m_HudActive) return;
-            m_Time.Text = ScoreManager.FormatTime(time);
-            m_Honks.Text = dodges > 0 ? "HONKS " + honks + "  ·  DODGES " + dodges : "HONKS " + honks;
-            m_Best.Text = "BEST " + ScoreManager.FormatTime(bestTime);
+            // Text is only rebuilt when a shown value changes (the timer shows tenths): no per-frame strings, no per-frame mesh rebuilds.
+            int ds = Mathf.FloorToInt(time * 10f);
+            if (ds != m_HudDeciseconds) { m_HudDeciseconds = ds; m_Time.Text = ScoreManager.FormatTime(time); }
+            if (honks != m_HudHonks || dodges != m_HudDodges)
+            {
+                m_HudHonks = honks; m_HudDodges = dodges;
+                m_Honks.Text = dodges > 0 ? "HONKS " + honks + "  ·  DODGES " + dodges : "HONKS " + honks;
+            }
+            if (!Mathf.Approximately(bestTime, m_HudBest)) { m_HudBest = bestTime; m_Best.Text = "BEST " + ScoreManager.FormatTime(bestTime); }
         }
 
         static Sprite RingSprite
@@ -612,7 +873,7 @@ namespace GooseBrawl
         public void ShowSubtitle(string text, float seconds)
         {
             if (m_SubtitlePill == null || string.IsNullOrEmpty(text)) return;
-            bool results = m_GameOver != null && m_GameOver.gameObject.activeSelf;
+            bool results = (m_GameOver != null && m_GameOver.gameObject.activeSelf) || (m_Photo != null && m_Photo.gameObject.activeSelf);
             m_SubtitlePill.anchoredPosition = results ? new Vector2(0f, 470f) : new Vector2(-70f, 196f);
             m_Subtitle.Text = text;
             m_SubtitleUntil = Time.unscaledTime + Mathf.Max(0.8f, seconds);

@@ -51,8 +51,8 @@ namespace GooseBrawl
                 "YOU HAVE LEGS. USE THEM. I'M COUNTING.",
                 "ONE EGG. ONE CHASE. NO REFUNDS." } },
             { Beat.IntroAgain, new[] {
-                "OH. IT'S YOU AGAIN. RUN FASTER THIS TIME.",
-                "YOU AGAIN. NOT FORGIVEN. NOT FORGOTTEN.",
+                "THIS MEANS WAR.",
+                "OH. IT'S WAR NOW. RUN.",
                 "[sighs] BACK FOR MORE. HOW BRAVE. HOW DUMB.",
                 "WE MEET AGAIN. STILL MAD, BY THE WAY.",
                 "I REMEMBER YOU. I REMEMBER EVERYTHING.",
@@ -151,6 +151,16 @@ namespace GooseBrawl
         {
             int i = gamesPlayed % Personas.Length;
             return Personas[i < 0 ? i + Personas.Length : i];
+        }
+
+        /// <summary>The voice a bank name owns (a goose named before the brain stored voices still gets the right one).</summary>
+        public static bool IsFemaleName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string n = name.Trim();
+            foreach (var p in Personas)
+                if (string.Equals(p.name, n, System.StringComparison.OrdinalIgnoreCase)) return p.female;
+            return false;
         }
 
         /// <summary>Text without the ElevenLabs audio tags, for the HUD.</summary>

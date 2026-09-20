@@ -11,7 +11,11 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "design-voice": "tsx scripts/design-voice.ts",
-    "pregen": "tsx scripts/pregen.ts"
+    "pregen": "tsx scripts/pregen.ts",
+    "elastic:setup": "tsx scripts/elastic-setup.ts",
+    "elastic:seed": "tsx scripts/elastic-seed.ts",
+    "elastic:agent": "tsx scripts/elastic-agent.ts",
+    "elastic:workflow": "tsx scripts/elastic-workflow.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
@@ -24,6 +28,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4",
+    "@types/node": "^26.6.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0",

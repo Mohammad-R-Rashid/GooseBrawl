@@ -6,10 +6,17 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "durable_objects": {
-    "bindings": [{ "name": "GooseBrain", "class_name": "GooseBrain" }]
+    "bindings": [
+      { "name": "GooseBrain", "class_name": "GooseBrain" },
+      { "name": "GooseBoard", "class_name": "GooseBoard" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GooseBrain"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GooseBrain"] },
+    { "tag": "v2", "new_sqlite_classes": ["GooseBoard"] }
+  ],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "goose-audio" }],
+  "ai": { "binding": "AI" },
   "vars": {
     // Public DSN of the Sentry "goose-brain" (Cloudflare) project. Empty = Sentry off.
     "SENTRY_DSN": "https://a14247c9fa3f2420295276748530dc6b@o4512115987054592.ingest.us.sentry.io/4512115992625152",
@@ -29,6 +36,12 @@
     "OPENAI_MODEL": "gpt-5.6-luna",
     "OPENAI_TRANSCRIBE_MODEL": "gpt-transcribe",
     // "1" = no third-party calls: bank lines + a synthesized honk WAV (local dev without keys).
+    // Elastic Cloud Serverless project (Elastic: Find the Signal). Empty = off. Secret: ELASTIC_API_KEY.
+    "ELASTIC_URL": "https://my-elasticsearch-project-e6e374.es.us-central1.gcp.elastic.cloud",
+    "ELASTIC_KIBANA_URL": "https://my-elasticsearch-project-e6e374.kb.us-central1.gcp.elastic.cloud",
+    // Agent Builder agent (scripts/elastic-agent.ts) and the rerank endpoint (scripts/elastic-setup.ts prints the ids).
+    "ELASTIC_AGENT_ID": "goosed-intel",
+    "ELASTIC_RERANK_ID": "",
     "MOCK_AI": "0"
   }
   // Secrets (never here): wrangler secret put OPENAI_API_KEY / ELEVENLABS_API_KEY

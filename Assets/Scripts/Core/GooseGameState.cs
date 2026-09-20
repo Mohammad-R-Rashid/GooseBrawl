@@ -13,4 +13,13 @@ namespace GooseBrawl
         JumpAttack,
         GameOver
     }
+
+    /// <summary>What a round looked like, for the results card, the share stamp and the Goose Board.</summary>
+    public struct RoundRecap
+    {
+        public int Dashes, LungesSurvived, Breads, Honks, Dodges;
+        public bool Rage, Won, HasShot;
+        public float Survival;
+        public string GooseName, GooseTitle;
+    }
 }

@@ -14,3 +14,10 @@ export function bankLine(beat: Beat, index: number): string {
 export function bankPersona(index: number): { name: string; title: string; voice: Voice } {
   return PERSONAS[((index % PERSONAS.length) + PERSONAS.length) % PERSONAS.length];
 }
+
+/** The voice a bank name owns (undefined for names the model invented). */
+export function personaVoice(name: string | undefined): Voice | undefined {
+  if (!name) return undefined;
+  const n = name.trim().toUpperCase();
+  return PERSONAS.find((p) => p.name.toUpperCase() === n)?.voice;
+}

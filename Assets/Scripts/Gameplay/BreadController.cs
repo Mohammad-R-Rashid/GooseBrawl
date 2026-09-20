@@ -11,8 +11,10 @@ namespace GooseBrawl
     /// </summary>
     public class BreadController : MonoBehaviour
     {
-        public const float Width = 0.09f;
-        public const float Height = 0.055f;
+        /// <summary>A slice of toast: width and height of the face, Height is the thickness (it lies face-up on the floor).</summary>
+        public const float Width = 0.11f;
+        public const float SliceHeight = 0.105f;
+        public const float Height = 0.014f;
 
         public bool Landed { get; private set; }
         public bool Eaten { get; private set; }
@@ -24,13 +26,13 @@ namespace GooseBrawl
 
         public static BreadController Create(MaterialLibrary mats, Vector3 at)
         {
-            var go = new GameObject("BreadRoll");
+            var go = new GameObject("BreadSlice");
             go.transform.position = at;
             var ctrl = go.AddComponent<BreadController>();
             var model = new GameObject("Model");
             model.transform.SetParent(go.transform, false);
             var mf = model.AddComponent<MeshFilter>();
-            mf.sharedMesh = ProceduralAssets.BreadRollMesh("BreadRoll", Width, Height, 3);
+            mf.sharedMesh = ProceduralAssets.ToastSliceMesh("BreadSlice", Width, SliceHeight, Height);
             var mr = model.AddComponent<MeshRenderer>();
             mr.sharedMaterial = mats != null ? mats.Bread : ProceduralAssets.LitMaterial("Bread_Runtime", new Color(0.83f, 0.6f, 0.33f), 0.15f);
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
@@ -88,7 +90,8 @@ namespace GooseBrawl
             }
             LandingPosition = new Vector3(end.x, floorY, end.z);
             transform.position = LandingPosition + Vector3.up * Height * 0.5f;
-            m_Model.rotation = Quaternion.Euler(Random.Range(-8f, 8f), Random.Range(0f, 360f), Random.Range(-8f, 8f));
+            // Lands face-up (the face normal is +Z on the mesh), any heading, a little tilt.
+            m_Model.rotation = Quaternion.AngleAxis(Random.Range(0f, 360f), Vector3.up) * Quaternion.Euler(-90f + Random.Range(-6f, 6f), 0f, Random.Range(-6f, 6f));
             m_BaseScale = m_Model.localScale;
             Landed = true;
         }

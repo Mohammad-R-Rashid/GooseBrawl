@@ -10,8 +10,8 @@ namespace GooseBrawl
     {
         [Header("Turning / speed")]
         public float turnSpeedDeg = 420f;
-        public float acceleration = 5f;
-        public float deceleration = 9f;
+        public float acceleration = 8f;
+        public float deceleration = 10f;
 
         [Header("Floor")]
         [Tooltip("Max height difference from the nest floor the goose may follow (keeps it off tables).")]

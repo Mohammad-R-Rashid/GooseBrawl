@@ -698,6 +698,8 @@ MonoBehaviour:
   mockWallMaterial: {fileID: 2100000, guid: 539380b4729db41ec9832038c37f8565, type: 2}
   dustMaterial: {fileID: 2100000, guid: 73a5f9bd8c4464d01934ec2a4f7bc212, type: 2}
   accentMaterial: {fileID: 2100000, guid: 969a58003a3c94cedba9719c805f22af, type: 2}
+  breadMaterial: {fileID: 0}
+  crumbMaterial: {fileID: 0}
   nestModel: {fileID: 0}
 --- !u!114 &1301553892
 MonoBehaviour:
@@ -818,6 +820,7 @@ MonoBehaviour:
   heartRateCalm: 0.9
   heartRatePanic: 2.2
   heartbeatStart: 0.25
+  breathingEnabled: 0
   breathVolume: 0.3
   breathPitchCalm: 0.9
   breathPitchPanic: 1.5
@@ -848,6 +851,13 @@ MonoBehaviour:
   angryHonkClip: {fileID: 0}
   rageHonkClip: {fileID: 0}
   dramaticHonkClip: {fileID: 0}
+  voicePitch: 1.1
+  voiceHighPassHz: 220
+  voiceDistortion: 0.1
+  voiceLowPassHz: 22000
+  voiceWarbleDepth: 0
+  voiceWarbleRateHz: 5.5
+  voiceWarbleMix: 0.45
 --- !u!114 &1301553900
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -887,7 +897,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3be883ff0d4794060bfdf62198472355, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GooseBrawl.AREnvironmentMeshController
-  visualizePlanes: 1
+  showPlaneDots: 0
+  visualizePlanes: 0
   planePollInterval: 0.5
   planeFadeSpeed: 1.8
 --- !u!114 &1301553903
@@ -952,9 +963,10 @@ MonoBehaviour:
   meshManager: {fileID: 1037074801}
   environmentProbeManager: {fileID: 311437932}
   enableVerticalPlanes: 1
-  enableEnvironmentMeshing: 1
+  enableEnvironmentMeshing: 0
+  meshDensity: 0.35
   enableOcclusion: 1
-  enableEnvironmentProbes: 1
+  enableEnvironmentProbes: 0
 --- !u!114 &1301553907
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -977,12 +989,20 @@ MonoBehaviour:
   dangerDistance: 1.8
   minimumScanTime: 1.5
   repeatBeatSpeed: 0.65
-  palmRadius: 0.06
+  palmRadius: 0.07
   palmSpring: 40
   palmDamping: 7
-  accelerationGain: 1
+  accelerationGain: 0.85
+  accelerationDeadZone: 0.6
   tiltGain: 1
+  tiltDeadZoneRoll: 1.8
+  tiltDeadZonePitch: 4
+  carryGraceSeconds: 1
+  repeatCarryDifficulty: 1.4
   stillCreepAfter: 10
+  outlastSeconds: 45
+  dodgeDistance: 0.35
+  breadPerRound: 1
 --- !u!4 &1301553908
 Transform:
   m_ObjectHideFlags: 0
@@ -1033,8 +1053,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4966719baa26e4b0e8231a24d9bd491a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.XR.ARFoundation::UnityEngine.XR.ARFoundation.ARCameraManager
-  m_FocusMode: 1
-  m_LightEstimationMode: 0
+  m_FocusMode: -1
+  m_LightEstimationMode: -1
   m_AutoFocus: 1
   m_ImageStabilization: 0
   m_LightEstimation: 0

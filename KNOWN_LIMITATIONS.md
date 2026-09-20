@@ -1,3 +1,9 @@
+- **Results / photo / board / speech pass (2026-09-20) was verified in the Editor mock (smoke test, `Library/ShareShots` PNGs, the
+  board against `wrangler dev` and the deployed Worker); not yet on the phone.** Still to verify on the iPhone 15 Pro: the share
+  sheet (`GooseShare.mm`, needs the `NSPhotoLibraryAddUsageDescription` the post-build step now writes), the capture at the tackle
+  (`ScreenCapture.CaptureScreenshotAsTexture` at the end of the slow-motion frame), the iOS keyboard over the board row, and the
+  on-device speech recogniser (`GooseSpeech.mm`: needs the Dictation language assets; the `speech.warmup` log says `available`).
+  If speech misbehaves in a loud hall, the yell still works exactly as before (the recogniser only adds the name / apology beats).
 - **Voice + brain + Sentry pass (this session) was built and verified in the Editor mock through the smoke test (offline and
   against a local `wrangler dev` Worker in mock mode) and the Unity iOS export; no phone was connected.** Still to verify on the
   iPhone 15 Pro: the microphone prompt and shout detection with the phone's own speaker (the honk gate), speaker volume while
@@ -11,13 +17,14 @@
 - **Sentry is enabled** (Unity + Worker, one project). The Uptime monitor on `/health` must be created in the Sentry UI. The
   ElevenLabs key was shared in a chat transcript: rotate it after the event. Sentry Profiling and Session Replay do not exist for Unity; the frame-level data
   comes from `PerfProbe` through Tracing and Logs. Adaptive quality only steps down, and only on the device.
-- **The bread button** renders the roll through an extra camera on the `UIBread` layer (added by Setup / the `layers` remote command);
+- **The bread button** renders the slice of toast through an extra camera on the `UIBread` layer (added by Setup / the `layers` remote command);
   without that layer it falls back to a flat warm disc.
 - **Bread never uses physics**: it lands on the far side of the goose on free floor (falls back to beside it); on a cluttered
   scan it may land inside something the goose then walks around. The goose ignores catches while it eats (by design).
 - **Release builds only**: development builds show Unity's console overlay on errors and cost frame time; `Goose Brawl > Build iOS
   Xcode Project (Release)` + `xcodebuild -configuration Release` is the shipping path. Performance defaults are MSAA 2x,
-  1024 shadow map, 8 m shadow distance, LiDAR mesh density 0.35; the benchmark compares the heavier settings.
+  1024 shadow map, 8 m shadow distance, LiDAR scene reconstruction OFF (the goose steers against the detected wall
+  planes), environment probes OFF; the benchmark (docs/PERFORMANCE_BENCHMARK.md) measures the heavier settings.
 - **The shout is amplitude-based**: any loud burst 15 dB over the room floor (and above -20 dBFS) counts; clapping works too.
 # Known Limitations
 
@@ -64,8 +71,10 @@
 - **Haptics** use Core Haptics (transients, continuous events, authored patterns) with a UIKit fallback on device and
   `Handheld.Vibrate` on Android; the Editor only counts pulses.
 - **Editor mock** is a flat room with boxes; it cannot reproduce AR tracking quality, meshing noise or lighting.
-- **Mesh density / performance** were chosen conservatively (density 0.5, no normals, 4 concurrent mesh jobs).
-  Very large spaces will accumulate many mesh colliders; restarting the app clears them.
+- **LiDAR scene reconstruction is off by default** (`ARBootstrapper.enableEnvironmentMeshing`): every chunk update
+  cooked a MeshCollider on the main thread and produced visible hitches. Walls come from ARKit's vertical planes
+  instead, which appear a little later and only for flat, well-lit walls; furniture in the middle of a room is not a
+  collider for the goose any more. The benchmark config `mesh_on` measures the cost if it is ever wanted back.
 - **No pooling for the dust particle system** beyond reusing one system per goose; there is only ever one goose.
 - The TextMeshPro essential resources are imported by Setup; if that import fails the UI silently uses legacy
   `UnityEngine.UI.Text`, which looks a little softer.

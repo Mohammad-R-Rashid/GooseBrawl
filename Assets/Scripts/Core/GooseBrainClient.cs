@@ -25,6 +25,9 @@ namespace GooseBrawl
         public float retryOfflineAfterSeconds = 20f;
 
         [Serializable] public class LineDto { public string text; public string mood; public string source; public string audioUrl; public string transcript; public int ms; }
+        [Serializable] public class BoardRowDto { public int rank; public string name; public float seconds; public string outcome; public string goose; public int honks; public int dodges; }
+        [Serializable] public class BoardTopDto { public BoardRowDto[] runs; public int total; }
+        [Serializable] public class BoardPostDto { public int rank; public int total; public string name; }
         [Serializable] public class SessionDto { public string deviceId; public string name; public string title; public string voice; public int grudge; public int rounds; public bool returning; public LineDto intro; public int ms; }
 
         public class LineResult
@@ -131,6 +134,39 @@ namespace GooseBrawl
             if (line.FromBrain) LinesFromBrain++;
             GooseTelemetry.Log(GooseTelemetry.Level.Info, "brain.line", ("beat", kind), ("source", dto.source), ("audio", line.Clip != null), ("transcript", dto.transcript ?? ""), ("ms", dto.ms));
             done?.Invoke(line);
+        }
+
+        string BoardUrl(string suffix) => brainBaseUrl.TrimEnd('/') + suffix;
+
+        /// <summary>Goose Board: post this run. Callback receives null when offline or rejected.</summary>
+        public IEnumerator PostBoardRun(string name, float seconds, bool won, string gooseName, int honks, int dodges, Action<BoardPostDto> done)
+        {
+            if (!Available) { done?.Invoke(null); yield break; }
+            var body = new Dictionary<string, object>
+            {
+                { "deviceId", DeviceId }, { "name", name ?? "" }, { "seconds", seconds }, { "outcome", won ? "OUTLASTED" : "GOOSED" },
+                { "gooseName", gooseName ?? "" }, { "honks", honks }, { "dodges", dodges }
+            };
+            BoardPostDto dto = null;
+            yield return Post(BoardUrl("/board/run"), "board.post", "board", ToJson(body), null, s => dto = JsonUtility.FromJson<BoardPostDto>(s));
+            done?.Invoke(dto != null && dto.rank > 0 ? dto : null);
+        }
+
+        /// <summary>Goose Board: today's top n. Never marks the brain offline (a missing ticker is not a brain failure).</summary>
+        public IEnumerator FetchBoardTop(int n, Action<BoardRowDto[]> done)
+        {
+            if (!Available) { done?.Invoke(null); yield break; }
+            using (var req = UnityWebRequest.Get(BoardUrl("/board/top?n=" + Mathf.Clamp(n, 1, 10))))
+            {
+                req.timeout = 4;
+                GooseTelemetry.AddTraceHeaders(req);
+                yield return req.SendWebRequest();
+                if (req.result != UnityWebRequest.Result.Success || req.responseCode >= 400) { done?.Invoke(null); yield break; }
+                BoardTopDto dto = null;
+                try { dto = JsonUtility.FromJson<BoardTopDto>(req.downloadHandler.text); }
+                catch (Exception e) { GooseTelemetry.CaptureException(e, "board.parse"); }
+                done?.Invoke(dto != null ? dto.runs : null);
+            }
         }
 
         LineResult ToLine(LineDto d)

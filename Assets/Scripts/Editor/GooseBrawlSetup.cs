@@ -325,6 +325,7 @@ namespace GooseBrawl.Editor
             void SetBool(string name, bool v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) p.boolValue = v; else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
             void SetString(string name, string v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) p.stringValue = v; else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
             void SetFloat(string name, float v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) { if (p.propertyType == SerializedPropertyType.Float) p.floatValue = v; } else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
+            void SetInt(string name, int v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) { if (p.propertyType == SerializedPropertyType.Integer) p.intValue = v; else if (p.propertyType == SerializedPropertyType.Float) p.floatValue = v; } else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
             SetBool("Enabled", !string.IsNullOrEmpty(dsn));
             SetString("Dsn", dsn);
             SetBool("CaptureInEditor", true);
@@ -335,6 +336,17 @@ namespace GooseBrawl.Editor
             SetBool("IosNativeSupportEnabled", true);
             SetBool("AutoStartupTraces", true);
             SetBool("AutoSceneLoadTraces", true);
+            // The SDK's own Application Metrics time series (frame rate / frame time, memory, GC, network) next to ours.
+            SetBool("AutoFrameMetrics", true);
+            SetInt("FrameMetricsIntervalSeconds", 1);
+            SetBool("AutoMemoryMetrics", true);
+            SetInt("MemoryMetricsIntervalSeconds", 10);
+            SetBool("AutoGcMetrics", true);
+            SetInt("GcMetricsIntervalSeconds", 10);
+            SetBool("AutoNetworkMetrics", true);
+            SetInt("NetworkMetricsIntervalSeconds", 10);
+            // Debug.LogWarning / LogError also become Sentry Logs (AR warnings, brain fallbacks); plain Debug.Log stays local.
+            SetBool("EnableStructuredLogging", true);
             var cfg = so.FindProperty("<OptionsConfiguration>k__BackingField");
             if (cfg != null) cfg.objectReferenceValue = config;
             so.ApplyModifiedPropertiesWithoutUndo();

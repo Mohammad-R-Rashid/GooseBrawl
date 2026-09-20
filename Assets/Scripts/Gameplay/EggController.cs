@@ -41,9 +41,12 @@ namespace GooseBrawl
             // A matte shell: environment reflections from the AR probes made it look like glazed plastic.
             shell.SetFloat("_EnvironmentReflections", 0f);
             shell.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+            // Convex and smooth: main-light shadow-map self-shadowing only adds a grey ring of acne around the tip
+            // (8 mm shadow texels vs a 25 mm tip). URP ignores MeshRenderer.receiveShadows; it is a material keyword.
+            shell.SetFloat("_ReceiveShadows", 0f);
+            shell.EnableKeyword("_RECEIVE_SHADOWS_OFF");
             r.sharedMaterial = shell;
             r.shadowCastingMode = ShadowCastingMode.On;
-            // Convex and smooth: shadow-map self-shadowing only adds a hard ring near the lit/unlit edge.
             r.receiveShadows = false;
             var col = go.AddComponent<SphereCollider>();
             col.center = new Vector3(0f, EggHeight * 0.5f, 0f);
