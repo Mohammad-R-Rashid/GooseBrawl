@@ -95,6 +95,9 @@ namespace GooseBrawl.Editor
                 case "validate":
                     GooseBrawlValidator.Validate();
                     break;
+                case "refresh":
+                    AssetDatabase.Refresh();
+                    break;
                 case "save":
                     AssetDatabase.SaveAssets();
                     break;

@@ -148,6 +148,7 @@ namespace GooseBrawl
                 if (CinematicLookController.Instance != null) CinematicLookController.Instance.Impact(0.35f);
             }
             vis.Procedural.SquashStretch = 1.3f;
+            mv.Airborne = true;
 
             Vector3 start = transform.position;
             Vector3 target = targetProvider();
@@ -201,6 +202,7 @@ namespace GooseBrawl
             Vector3 lp = transform.position;
             lp.y = mv.SampleFloor(lp);
             transform.position = lp;
+            mv.Airborne = false; // the grounded pass pushes it out if the hop ended against a couch
             Vector3 flatForward = transform.forward;
             flatForward.y = 0f;
             mv.SetHeading(flatForward);

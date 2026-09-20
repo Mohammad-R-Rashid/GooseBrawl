@@ -71,10 +71,20 @@
 - **Haptics** use Core Haptics (transients, continuous events, authored patterns) with a UIKit fallback on device and
   `Handheld.Vibrate` on Android; the Editor only counts pulses.
 - **Editor mock** is a flat room with boxes; it cannot reproduce AR tracking quality, meshing noise or lighting.
-- **LiDAR scene reconstruction is off by default** (`ARBootstrapper.enableEnvironmentMeshing`): every chunk update
-  cooked a MeshCollider on the main thread and produced visible hitches. Walls come from ARKit's vertical planes
-  instead, which appear a little later and only for flat, well-lit walls; furniture in the middle of a room is not a
-  collider for the goose any more. The benchmark config `mesh_on` measures the cost if it is ever wanted back.
+- **LiDAR scene reconstruction is on again, lean** (`ARBootstrapper.enableEnvironmentMeshing`, density 0.3, no
+  normals, two chunks in flight): it is the only way a chair or a table exists for the goose. The mesh prefab carries
+  the `MeshCollider`, so AR Foundation bakes the collision data off the main thread; the adaptive quality ladder
+  freezes meshing at tier 2 (the chunks and their colliders stay, updates stop) if frames run long. Without LiDAR
+  (non-Pro iPhones) only the floor and wall planes exist and furniture is still invisible to the goose.
+- **Selfie photo mode switches the ARKit session configuration** (world tracking -> face tracking with the front camera
+  and back). Unverified on the phone as of 2026-09-20: whether ARKit keeps the world map across the switch. If the nest
+  or the goose have drifted after BACK, the round is over anyway; MOVE NEST re-places it. Capture waits for live camera frames and falls back to the rear camera if switching fails. The goose is framed beside the face using the camera projection, including when the phone tilts. People occlusion in the selfie
+  is requested and silently dropped where unsupported.
+- **The goose can still land in furniture the LiDAR has not seen yet.** Spawn spots need a clear full-height body
+  capsule and scanned floor with a line of sight from the phone, but a chunk can arrive after the landing. The standing
+  goose then nudges itself out sideways (`GooseObstacleAvoidance.ResolveOverlap`, 20 Hz, one overlap query when
+  clear) or, when it is inside a seat, hops to the nearest free spot with a feather burst. That relocation is a visible
+  pop of up to a couple of metres; it is logged as `goose.relocated`.
 - **No pooling for the dust particle system** beyond reusing one system per goose; there is only ever one goose.
 - The TextMeshPro essential resources are imported by Setup; if that import fails the UI silently uses legacy
   `UnityEngine.UI.Text`, which looks a little softer.

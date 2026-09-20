@@ -37,7 +37,7 @@ cost. 15 s per configuration on the phone (3 s in the Editor mock), ten configur
 
 | Config | Change from baseline | Question it answers |
 |---|---|---|
-| `baseline` | MSAA 2x, occlusion (Fastest + temporal smoothing), post-FX on, 1024 shadow map, LiDAR mesh off, render scale 1.0 | The shipped settings |
+| `baseline` | MSAA 2x, occlusion (Fastest + temporal smoothing), post-FX on, 1024 shadow map, LiDAR mesh as shipped (on, density 0.3, queue 2), render scale 1.0 | The shipped settings |
 | `msaa4x` | MSAA 4x | Can we afford smoother edges? |
 | `msaa_off` | no MSAA | How much does 2x cost? |
 | `no_occlusion_smoothing` | depth temporal smoothing off | The first rung of the adaptive ladder |
@@ -94,11 +94,20 @@ code rather than the matrix:
 
 | Finding | Change |
 |---|---|
-| Every LiDAR chunk update cooked a `MeshCollider` on the main thread; spike logs on the phone carried `mesh_chunks` climbing while the frame hitched; the goose steers just as well against ARKit wall planes. | Scene reconstruction off by default (`ARBootstrapper.enableEnvironmentMeshing = false`); still measurable through `mesh_on`. |
+| Every LiDAR chunk update cooked a `MeshCollider` on the main thread; spike logs on the phone carried `mesh_chunks` climbing while the frame hitched; the goose steers just as well against ARKit wall planes. | Scene reconstruction was turned off for a while. It is back on (furniture has to exist for the goose so it never stands inside a chair) but lean: density 0.3, no normals, two chunks in flight, collision baked off the main thread by AR Foundation (the mesh prefab owns the `MeshCollider`), and the quality ladder freezes it at tier 2. `mesh_on` now measures density 0.35 with the default queue for comparison. |
 | Environment probes upload and convolve a cubemap per update, and nothing glossy was left to reflect it (the egg and the nest are matte). | Environment probes off by default. |
 | The HUD rebuilt its text meshes (and allocated strings) every frame for the timer, honks and best; the whole overlay canvas was re-batched with them. | HUD labels only touched when the shown value changes; the HUD lives on its own nested canvas so only its batch rebuilds. |
-| The goose's voice filters (high-pass, distortion, chorus) were applied to the shared source for honks too. | Filters enabled only while a line plays. |
+| Speech shared its source with honk bursts, allowing a later burst to change speech pitch or overlap a line. | Dedicated speech source with no Doppler, central honk suppression/cancellation, one pending line, and full interruption cleanup. The next bank line for each beat is loaded asynchronously during the entrance; voice imports decode in the background. |
+| The off-screen distance label allocated a string every frame; the profiler rebuilt phase names each frame and allocated a list for every rolling percentile. | Cache the displayed distance and phase names, and reuse percentile scratch storage. No render settings change. |
+| AR Foundation re-enabled plane renderers after the game hid them. | Plane prefab has no renderer; the boundary mesh and collider remain. Removed plane opacity updates and redundant collider checks. |
+| Long flock recordings could play without subtitles during rage/new-best feedback. | Flock ambience is disabled by default and new-best feedback uses a short honk, gated while speech plays. No long ambient clip is loaded by default. |
 | MSAA 4x / 2048 shadow map were unverified guesses. | MSAA 2x, 1024 map, 8 m shadow distance committed; the matrix measures the heavier options. |
+
+### Additional preparation without changing rendering
+
+The title/scan phase prepares the cached egg mesh, shell speckle texture, feather texture and any missing material fallbacks, one item per frame. The toast mesh is shared between the rotating HUD icon and thrown slices. Goose dust, footsteps, crumbs, feather bursts and the feather trail are allocated over the entrance frames without emitting particles. Effect counts, materials, simulation settings and render quality are unchanged.
+
+The bread icon camera only renders while its HUD button is visible; its rotation still advances while hidden. Its unlit material needs no dedicated point lights, and camera enumeration reuses storage. Egg shell fragments share their identical outer/inner materials; crack materials are prepared with the egg, and dynamically generated fragment meshes are released when the cracked egg is cleared. These reduce gameplay allocations and avoid resources accumulating across rounds. Device frame-time improvements require measurement; the Editor smoke test checks preparation, shared mesh identity and hidden-camera suspension.
 
 ## Results
 

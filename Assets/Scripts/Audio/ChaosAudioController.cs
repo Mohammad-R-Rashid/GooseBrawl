@@ -28,6 +28,8 @@ namespace GooseBrawl
         public float breathStartTime = 6f;
 
         [Header("Flock ambience (rage mode)")]
+        [Tooltip("Optional field recording. Off in the game: unrelated background calls can sound like an uncaptioned voice.")]
+        public bool flockAmbienceEnabled = false;
         [Range(0f, 1f)] public float flockVolume = 0.15f;
 
         [Header("Random goose flaps")]
@@ -48,8 +50,7 @@ namespace GooseBrawl
             var mgr = GooseGameManager.Instance;
             var audio = mgr != null ? mgr.Audio : FindAnyObjectByType<AudioManager>();
             m_Breath = MakeSource("Breathing", audio != null ? audio.BreathClip : null);
-            m_FlockClip = Resources.Load<AudioClip>("GooseAudio/yellowstone_canada_geese");
-            if (m_FlockClip == null) m_FlockClip = Resources.Load<AudioClip>("GooseAudio/geese_honking_distant");
+            if (flockAmbienceEnabled) m_FlockClip = Resources.Load<AudioClip>("GooseAudio/yellowstone_canada_geese");
             m_Flock = MakeSource("Flock", m_FlockClip);
             // The flock is somewhere outside: dull it.
             var lp = m_Flock.gameObject.AddComponent<AudioLowPassFilter>();
@@ -110,7 +111,7 @@ namespace GooseBrawl
             m_Breath.pitch = Mathf.Lerp(breathPitchCalm, breathPitchPanic, breathLevel) * (slowMo ? 0.75f : 1f);
 
             // Distant flock: rage mode only.
-            Fade(m_Flock, goose.Rage ? flockVolume * master : 0f, dt * 0.6f);
+            Fade(m_Flock, flockAmbienceEnabled && goose.Rage ? flockVolume * master : 0f, dt * 0.6f);
 
             // Random flaps / feathers so the goose never goes quiet.
             if (Time.time >= m_NextFlap && goose.State != GooseState.GameOver)

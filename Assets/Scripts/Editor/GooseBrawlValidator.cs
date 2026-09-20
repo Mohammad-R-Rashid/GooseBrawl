@@ -33,6 +33,8 @@ namespace GooseBrawl.Editor
 
             // Packages
             Check(PackagePresent("com.unity.xr.arfoundation"), "AR Foundation installed", "Add com.unity.xr.arfoundation in Package Manager");
+            var arkit = UnityEditor.XR.ARKit.ARKitSettings.currentSettings;
+            Check(arkit != null && arkit.faceTracking, "ARKit front-camera support included", "Enable Face Tracking in ARKit settings");
             Check(PackagePresent("com.unity.xr.arkit"), "ARKit XR Plugin installed", "Add com.unity.xr.arkit in Package Manager");
             Check(PackagePresent("com.unity.xr.management"), "XR Plugin Management installed");
             Check(PackagePresent("com.unity.render-pipelines.universal"), "URP installed");
@@ -98,6 +100,8 @@ namespace GooseBrawl.Editor
                     Check(lib != null && lib.shadowCatcherMaterial != null && lib.shadowCatcherMaterial.shader != null && lib.shadowCatcherMaterial.shader.name == "GooseBrawl/ShadowCatcher", "Shadow catcher material uses GooseBrawl/ShadowCatcher", "Run Setup Project");
                     var planeMgr = Object.FindAnyObjectByType<ARPlaneManager>(FindObjectsInactive.Include);
                     Check(planeMgr == null || planeMgr.planePrefab != null, "ARPlaneManager has plane prefab", warnOnly: true);
+                    Check(planeMgr == null || planeMgr.planePrefab == null || planeMgr.planePrefab.GetComponentInChildren<Renderer>() == null,
+                        "Scan plane prefab is invisible (colliders retained)");
                     var meshMgr = Object.FindAnyObjectByType<ARMeshManager>(FindObjectsInactive.Include);
                     Check(meshMgr == null || meshMgr.meshPrefab != null, "ARMeshManager has mesh prefab", warnOnly: true);
                     var cam = Camera.main;

@@ -36,6 +36,8 @@ interface SessionBody {
   roundsThisSession?: number;
   gamesPlayed?: number;
   bestTime?: number;
+  /** false: the phone plays its local bank and never fetches audio, so the intro is written (memory, booth page) but not voiced. */
+  voice?: boolean;
 }
 
 interface EventBody {
@@ -44,10 +46,16 @@ interface EventBody {
 }
 
 const TOTAL_BUDGET_MS = 4200;
+/** The session call is fire-and-forget on the phone (9 s timeout) during the steal beat: room to write AND voice the intro. */
+const SESSION_BUDGET_MS = 7500;
 /** How long session start waits for the fast Elastic tier before writing the intro without it. */
 const INTEL_BUDGET_MS = 900;
-/** The phone stops waiting for a beat after this (GooseVoice.SayBeat deadline: 2.5 s, yell 3.5 s) and plays its bank line instead. */
-const PHONE_DEADLINE_MS: Partial<Record<Beat, number>> = { yell: 3300, taunt10: 2300, bread: 2300, dodge: 2300, rage: 2300, caught: 2300, outlasted: 2300 };
+/**
+ * The phone stops waiting for a beat after this (GooseVoice.BrainDeadline: yell 3.5 s, round end 2.5 s) and plays its bank
+ * line instead. Mid-chase reactions (taunt10, bread, dodge, rage) never wait: the phone speaks its bank line on the beat
+ * and sends it here as payload.spoken, so nothing is written or voiced for them.
+ */
+const PHONE_DEADLINE_MS: Partial<Record<Beat, number>> = { yell: 3300, caught: 2300, outlasted: 2300 };
 /** What a live TTS round-trip costs on top of the line; when it would push the answer past the phone's deadline, the words go alone. */
 const TTS_COST_MS = 1100;
 
@@ -118,7 +126,7 @@ export class GooseBrainBase extends Agent<Env, GooseMemory> {
     if (this.env.ELASTIC_AGENT_ID && elasticOn(this.env)) this.ctx.waitUntil(this.refreshDeepIntel(memory.name));
 
     const payload: EventPayload = { roundsThisSession: body.roundsThisSession ?? 0 };
-    const intro = await this.produce(memory.rounds > 1 ? "intro_again" : "intro", payload, memory, started);
+    const intro = await this.produce(memory.rounds > 1 ? "intro_again" : "intro", payload, memory, started, SESSION_BUDGET_MS, body.voice !== false);
     this.record("session", body, intro.text, intro.source);
     this.ctx.waitUntil(indexQuietly(this.env, [lineDoc({ deviceId: this.name, goose: memory.name, beat: memory.rounds > 1 ? "intro_again" : "intro", line: intro.text, mood: intro.mood, source: intro.source, round: memory.rounds })]));
     return this.json({
@@ -190,29 +198,33 @@ export class GooseBrainBase extends Agent<Env, GooseMemory> {
   }
 
   /** Write the line (OpenAI, bank fallback) and voice it (ElevenLabs -> R2), inside the total time budget. */
-  private async produce(beat: Beat, payload: EventPayload, memory: GooseMemory, started: number) {
+  private async produce(beat: Beat, payload: EventPayload, memory: GooseMemory, started: number, budgetMs = TOTAL_BUDGET_MS, wantAudio = true) {
     const counts = { ...(memory.counts ?? {}) };
     const repeat = counts[beat] ?? 0;
     counts[beat] = repeat + 1;
     this.setState({ ...this.state, counts });
     const idx = memory.rounds * 3 + BEATS.indexOf(beat) + repeat;
-    const written = await writeAnyLine(this.env, beat, payload, this.memoryForPrompt(memory), idx);
+    // A reaction the phone already spoke: record it as said, nothing to write or voice.
+    const spoken = typeof payload.spoken === "string" ? payload.spoken.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+    const written = spoken ? { line: spoken, mood: "smug", source: "bank" } : await writeAnyLine(this.env, beat, payload, this.memoryForPrompt(memory), idx);
     const text = written.line;
     let audioUrl: string | null = null;
     let cached = false;
-    const remaining = TOTAL_BUDGET_MS - (Date.now() - started);
+    const remaining = budgetMs - (Date.now() - started);
     const phoneDeadline = PHONE_DEADLINE_MS[beat];
-    // A written line the phone would never hear (it stops waiting and plays the bank) is better delivered as words alone:
-    // GooseVoice shows it as a subtitle with a honk. Cached audio is still checked: it costs one HEAD.
-    const ttsFits = !phoneDeadline || Date.now() - started + TTS_COST_MS < phoneDeadline;
-    if (remaining > 800) {
+    // A written line the phone would never hear (it stops waiting and plays the bank) is not voiced; the phone only shows
+    // words it can also say, so an unvoiced line is memory and booth-page material. Cached audio is still checked: one HEAD.
+    const ttsFits = wantAudio && !spoken && (!phoneDeadline || Date.now() - started + TTS_COST_MS < phoneDeadline);
+    if (!wantAudio) {
+      Sentry.logger.info("tts skipped: the phone plays its local bank", { beat });
+    } else if (remaining > 800) {
       try {
         const voiceTag = voiceFor(this.env, memory.voice);
         const hash = await sha256Hex(`${voiceTag}|${this.env.ELEVENLABS_MODEL}|${delivery(this.env).signature}|${text}`);
         const key = audioKey(hash);
         cached = await getCachedWav(this.env, key);
         if (!cached && !ttsFits) {
-          Sentry.logger.info("tts skipped: past the phone's deadline, words only", { beat, elapsed: Date.now() - started, phoneDeadline });
+          Sentry.logger.info(spoken ? "tts skipped: the phone already spoke this line" : "tts skipped: past the phone's deadline, words only", { beat, elapsed: Date.now() - started, phoneDeadline });
         } else if (!cached) {
           const result = await Promise.race([
             speak(this.env, text, voiceTag),

@@ -68,7 +68,12 @@ faster and a tap skips ahead. The classic spawn-behind-you entrance is still ava
 
 The goose talks (ElevenLabs voice, lines written by OpenAI, memory on a Cloudflare Agent; see "Sponsor integrations"). Every
 spoken beat is deterministic and every beat has an offline fallback in `Assets/Resources/GooseVoice`, so the demo never waits
-on wifi:
+on wifi. Shipped setting: the voice is the local bank only (`GooseBrainClient.fetchVoiceAudio` off): nothing is generated or
+fetched live in a real-time game; the brain names the goose, keeps the memory and hears the shouts, and every beat plays its
+bank line on the beat (`payload.spoken` tells the brain what was said). Coherence rule: the subtitle pill only ever shows
+what the voice is saying. Speech has its own source; honk bursts are cancelled and blocked while it plays. Only the newest pending line is retained, and interruptions stop both active and waiting speech. A reaction that has waited more than two seconds behind another
+line, or that is still queued when the round ends, is dropped instead of played late. With brain audio switched on, the
+shout reply waits 3.5 s and the round-end line 2.5 s (`GooseVoice.BrainDeadline`) before the bank line plays:
 
 | Beat | When | What happens locally |
 |---|---|---|
@@ -330,8 +335,15 @@ the time big, honks survived and the best time. Best time and games played are t
 - **The photo** (`GooseShareService`): at the tackle the game grabs the slow-motion frame with the HUD hidden and a cream
   GOOSED. stamp (goose name + title, `GOT YOU AT 0:32.4`, `HACK THE NORTH 2026`); a win captures the sulking goose (`OUTLASTED IN`).
   **SHARE** opens the iOS share sheet (`Assets/Plugins/iOS/GooseShare.mm`: AirDrop, Messages, Save Image). **PHOTO WITH KEVIN**
-  hides the card: the goose stays put, turns to follow you, flaps and honks every few seconds; the shutter captures and shares.
-  In the Editor every capture is written to `Library/ShareShots/`.
+  hides the card and switches to the front camera (ARKit Face Tracking must be included in the build; the validator checks this). The shutter waits for two frames from the requested camera. The goose rides the phone over your shoulder (beside the line of sight,
+  head at lens height, upright), stares down the lens with its head cocked and every couple of seconds honks at it, throws
+  its wings up or pecks at the camera. **FLIP** goes back to the world camera with the goose posing where it stood (turns
+  to follow you, flaps and honks); the shutter captures and shares either. The camera switch needs a `ConfigurationChooser`
+  that puts the user-facing camera first (`GooseConfigurationChooser` in ARBootstrapper.cs): AR Foundation's default picks
+  the ARKit configuration with the most requested features, so planes + meshing + occlusion always outvoted the selfie
+  request and the rear camera stayed. Planes, meshing and environment occlusion are off for the selfie (people occlusion requested only when supported by the front-camera configuration,
+  otherwise the goose is composed beside your face) and restored on BACK. In the Editor every capture is written to
+  `Library/ShareShots/`.
 - **Goose Board**: when the Worker is reachable the card shows a name field and **POST TO BOARD** ("#3 ON THE BOARD"); the
   title screen shows today's top three. Everything degrades silently offline (row and ticker hidden, card shorter).
 - **It knows its name**: the 2 s shout clip the mic already captures is also run through Apple's on-device recogniser
@@ -355,9 +367,16 @@ All the interesting numbers are serialized fields:
 
 ## How the goose avoids walls
 
-- On LiDAR iPhones (15 Pro) `ARMeshManager` produces scene-reconstruction chunks. The mesh prefab has a
-  `MeshCollider` and no renderer; `AREnvironmentMeshController` keeps every chunk on the `AREnvironment` layer.
+- On LiDAR iPhones (15 Pro) `ARMeshManager` produces scene-reconstruction chunks (density 0.3, no normals, two in
+  flight). The mesh prefab has a `MeshCollider` and no renderer, so AR Foundation bakes the collision data off the
+  main thread; `AREnvironmentMeshController` keeps every chunk on the `AREnvironment` layer. This is what makes a
+  chair or a table exist for the goose.
 - Detected planes (floor and vertical walls) also carry `MeshCollider`s as a fallback when meshing is unavailable.
+- The goose body is a full-height capsule (feet to head, `GooseObstacleAvoidance.bodyHeight`): spawn and landing spots
+  need it clear, with scanned floor under it and a line of sight from the phone. A kinematic trigger copy of that
+  capsule (Ignore Raycast layer, no contacts) lets `Physics.ComputePenetration` push a standing goose out of geometry
+  that turns up around it later (the chair chunk that arrives after the landing); when the way out is vertical it hops
+  to the nearest free spot. The camera bubble (`GooseMovement.minCameraDistance`) holds in every grounded state.
 - 4-8 times per second `GooseObstacleAvoidance` capsule-casts the goose body along 0, +/-30, +/-60, +/-90 degrees
   (wider when stuck), checks for floor under each candidate and scores clearance, deviation, heading continuity and
   progress toward the player. Blocked directions slow the goose; if nothing is clear it stops, honks, backs up and turns.

@@ -119,12 +119,12 @@ namespace GooseBrawl.Editor
             meshGo.transform.SetParent(originGo.transform, false);
             var meshManager = meshGo.AddComponent<ARMeshManager>();
             meshManager.meshPrefab = envMeshPrefab != null ? envMeshPrefab.GetComponent<MeshFilter>() : null;
-            meshManager.density = 0.5f;
+            meshManager.density = 0.3f;
             meshManager.normals = false;
             meshManager.tangents = false;
             meshManager.textureCoordinates = false;
             meshManager.colors = false;
-            meshManager.concurrentQueueSize = 4;
+            meshManager.concurrentQueueSize = 2;
             meshManager.enabled = false;
 
             // ---- Game services --------------------------------------------------------------------
@@ -185,17 +185,13 @@ namespace GooseBrawl.Editor
             return prefab;
         }
 
-        /// <summary>Prefab for detected planes: a soft dot grid while scanning, always a collider. No outline.</summary>
+        /// <summary>Detected planes keep their boundary mesh and collider, with no visible scan geometry.</summary>
         public static GameObject CreatePlanePrefab(string path, int layer, Material planeMaterial)
         {
             var go = new GameObject("ARPlane");
             go.layer = layer;
             go.AddComponent<ARPlane>();
             go.AddComponent<MeshFilter>();
-            var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = planeMaterial;
-            mr.shadowCastingMode = ShadowCastingMode.Off;
-            mr.receiveShadows = false;
             go.AddComponent<MeshCollider>();
             go.AddComponent<ARPlaneMeshVisualizer>();
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);

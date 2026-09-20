@@ -897,10 +897,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3be883ff0d4794060bfdf62198472355, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GooseBrawl.AREnvironmentMeshController
-  showPlaneDots: 0
-  visualizePlanes: 0
   planePollInterval: 0.5
-  planeFadeSpeed: 1.8
 --- !u!114 &1301553903
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -963,8 +960,9 @@ MonoBehaviour:
   meshManager: {fileID: 1037074801}
   environmentProbeManager: {fileID: 311437932}
   enableVerticalPlanes: 1
-  enableEnvironmentMeshing: 0
-  meshDensity: 0.35
+  enableEnvironmentMeshing: 1
+  meshDensity: 0.3
+  meshQueueSize: 2
   enableOcclusion: 1
   enableEnvironmentProbes: 0
 --- !u!114 &1301553907

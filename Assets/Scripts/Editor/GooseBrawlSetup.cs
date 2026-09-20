@@ -386,6 +386,7 @@ namespace GooseBrawl.Editor
                 ARKitSettings.currentSettings = arkit;
             }
             arkit.requirement = ARKitSettings.Requirement.Required;
+            arkit.faceTracking = true; // Includes the front-camera ARKit configuration used by photo mode.
             EditorUtility.SetDirty(arkit);
             AssetDatabase.SaveAssets();
         }
@@ -553,7 +554,8 @@ namespace GooseBrawl.Editor
                 float wantQuality = longClip ? 0.6f : (voice ? 0.7f : 1f);
                 bool changed = settings.loadType != wantLoad || settings.compressionFormat != wantFormat || Mathf.Abs(settings.quality - wantQuality) > 0.01f;
                 if (importer.forceToMono != !longClip) { importer.forceToMono = !longClip; changed = true; }
-                if (importer.loadInBackground != longClip) { importer.loadInBackground = longClip; changed = true; }
+                bool background = longClip || voice;
+                if (importer.loadInBackground != background) { importer.loadInBackground = background; changed = true; }
                 if (!changed) continue;
                 settings.loadType = wantLoad;
                 settings.compressionFormat = wantFormat;

@@ -133,6 +133,9 @@ namespace GooseBrawl
         readonly FrameTiming[] m_Timings = new FrameTiming[1];
         ProfilerRecorder m_MemRec, m_GcRec, m_DrawRec, m_SetPassRec, m_TriRec;
         readonly List<float> m_Ring = new List<float>(256);
+        readonly List<float> m_PercentileScratch = new List<float>(256);
+        static readonly string[] s_ChasePhases = { "chase.tier0", "chase.tier1", "chase.tier2", "chase.tier3" };
+        static readonly string[] s_GamePhases = Array.ConvertAll((GooseGameState[])Enum.GetValues(typeof(GooseGameState)), state => state.ToString().ToLowerInvariant());
         float m_NextAdaptiveCheck, m_LastTierChange, m_NextSpikeSlot;
         int m_SpikeBudget;
         int m_FramesSinceRound;
@@ -327,7 +330,10 @@ namespace GooseBrawl
             if (now >= m_NextAdaptiveCheck)
             {
                 m_NextAdaptiveCheck = now + 0.5f;
-                RollingP95 = Window.Percentile(m_Ring, 0.95f);
+                m_PercentileScratch.Clear();
+                m_PercentileScratch.AddRange(m_Ring);
+                m_PercentileScratch.Sort();
+                RollingP95 = m_PercentileScratch.Count == 0 ? 0f : m_PercentileScratch[Mathf.RoundToInt((m_PercentileScratch.Count - 1) * 0.95f)];
                 bool inRound = Round != null && mgr != null && mgr.ChaseActive && !mgr.IsPaused;
                 bool benching = mgr != null && mgr.Bench != null && mgr.Bench.Running;
                 if (adaptive && inRound && !benching && !Application.isEditor && RollingP95 > adaptiveP95Ms && QualityTier < maxQualityTier &&
@@ -362,12 +368,12 @@ namespace GooseBrawl
                             case GooseState.Distracted: phase = "distracted"; break;
                             case GooseState.Flinched: phase = "flinch"; break;
                             case GooseState.NameCalled: phase = "name_called"; break;
-                            default: phase = "chase.tier" + goose.Tier; break;
+                            default: phase = s_ChasePhases[Mathf.Clamp(goose.Tier, 0, s_ChasePhases.Length - 1)]; break;
                         }
                     }
                     break;
                 case GooseGameState.GameOver: phase = "end"; break;
-                default: phase = mgr.State.ToString().ToLowerInvariant(); break;
+                default: phase = s_GamePhases[(int)mgr.State]; break;
             }
             if (mgr.IsPaused) phase = "paused";
             BeginPhase(phase);
@@ -511,12 +517,14 @@ namespace GooseBrawl
             if (urp != null) urp.renderScale = Mathf.Clamp(scale, 0.5f, 1f);
         }
 
-        /// <summary>Ladder from the MSAA 2x / 1024 baseline: 1 = occlusion smoothing off, 2 = grain/bloom/CA off, 3 = render scale 0.85.</summary>
+        /// <summary>Ladder from the MSAA 2x / 1024 baseline: 1 = occlusion smoothing off, 2 = grain/bloom/CA off + LiDAR meshing frozen (chunks stay), 3 = render scale 0.85.</summary>
         public void ApplyQualityTier(int tier)
         {
             tier = Mathf.Clamp(tier, 0, maxQualityTier);
             Remember();
             SetOcclusionSmoothing(tier < 1);
+            var mgrAr = GooseGameManager.Instance != null ? GooseGameManager.Instance.AR : null;
+            if (mgrAr != null) SetMeshing(tier < 2 && mgrAr.enableEnvironmentMeshing);
             if (CinematicLookController.Instance != null) CinematicLookController.Instance.SetReducedFX(tier >= 2);
             var urp = Urp;
             if (urp != null && m_RenderScaleOriginal > 0f) urp.renderScale = tier >= 3 ? Mathf.Min(m_RenderScaleOriginal, 0.85f) : m_RenderScaleOriginal;

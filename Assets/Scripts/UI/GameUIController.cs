@@ -32,8 +32,9 @@ namespace GooseBrawl
         UILabel m_StartBest, m_Message, m_MockHint, m_Tracking;
         UILabel m_Time, m_Honks, m_Best, m_DangerLabel, m_TurnAround;
         UILabel m_GoTitle, m_GoTime, m_GoScore, m_GoBest, m_GoGrudge;
-        UILabel m_GoRecap, m_PhotoLabel, m_PostLabel;
-        RectTransform m_Photo, m_Card, m_BoardRow, m_ActionRow, m_MoveNestButton, m_ShareButton, m_PhotoButton, m_Ticker;
+        Button m_PhotoShutter;
+        UILabel m_GoRecap, m_PhotoLabel, m_PostLabel, m_PhotoHint;
+        RectTransform m_Photo, m_Card, m_BoardRow, m_ActionRow, m_ShareButton, m_PhotoButton, m_Ticker;
         readonly UILabel[] m_TickerName = new UILabel[3];
         readonly UILabel[] m_TickerGoose = new UILabel[3];
         readonly UILabel[] m_TickerTime = new UILabel[3];
@@ -152,13 +153,16 @@ namespace GooseBrawl
         }
 
         /// <summary>Glass pill at the top with a title and optional smaller line.</summary>
-        RectTransform TopPill(Transform parent, string title, string subtitle, out UILabel subtitleLabel)
+        RectTransform TopPill(Transform parent, string title, string subtitle, out UILabel subtitleLabel) => TopPill(parent, title, subtitle, out subtitleLabel, out _);
+
+        RectTransform TopPill(Transform parent, string title, string subtitle, out UILabel subtitleLabel, out UILabel titleLabel)
         {
             subtitleLabel = null;
             float h = subtitle != null ? 164f : 108f;
             var pill = UIFactory.CreateGlassPill(parent, "TopPill", new Vector2(960f, h));
             UIFactory.Place(pill.rectTransform, new Vector2(0.5f, 1f), new Vector2(0f, -36f), new Vector2(960f, h));
             var t = UIFactory.CreateLabel(pill.transform, "Title", title, 42f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            titleLabel = t;
             UIFactory.Place(t.Rect, new Vector2(0.5f, 1f), new Vector2(0f, subtitle != null ? -24f : -14f), new Vector2(900f, 66f));
             if (subtitle != null)
             {
@@ -397,11 +401,10 @@ namespace GooseBrawl
             m_PostButton.onClick.AddListener(OnPostToBoardPressed);
 
             BottomButton(m_GameOver, "RunAgainButton", "RUN AGAIN", () => GooseGameManager.Instance.OnRunAgainPressed(), 260f);
-            // Secondary row: MOVE NEST · SHARE · PHOTO WITH <goose>. LayoutActionRow centres them (SHARE only when a shot exists).
+            // Secondary row: SHARE · PHOTO WITH <goose>. LayoutActionRow centres them (SHARE only when a shot exists).
+            // No MOVE NEST: RUN AGAIN always places the nest again, the old spot is never reused.
             m_ActionRow = UIFactory.CreateRect(m_GameOver, "ActionRow");
             UIFactory.Place(m_ActionRow, new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(960f, 84f));
-            m_MoveNestButton = SmallGlassButton(m_ActionRow, "MoveNest", "MOVE NEST", new Vector2(0.5f, 0f), Vector2.zero, new Vector2(250f, 84f),
-                () => GooseGameManager.Instance.OnMoveNestPressed(), out _);
             m_ShareButton = SmallGlassButton(m_ActionRow, "Share", "SHARE", new Vector2(0.5f, 0f), Vector2.zero, new Vector2(200f, 84f),
                 () => GooseGameManager.Instance.OnSharePressed(), out _);
             m_PhotoButton = SmallGlassButton(m_ActionRow, "Photo", "PHOTO WITH THE GOOSE", new Vector2(0.5f, 0f), Vector2.zero, new Vector2(380f, 84f),
@@ -410,11 +413,11 @@ namespace GooseBrawl
             LayoutActionRow(false);
         }
 
-        /// <summary>Photo mode: the card slides away, a shutter and BACK remain; the goose poses in the room.</summary>
+        /// <summary>Photo mode: the card slides away; a shutter, BACK and FLIP remain. Selfie by default (the goose over your shoulder), FLIP for the goose posing in the room.</summary>
         void BuildPhoto()
         {
             m_Photo = MakeScreen("PhotoScreen");
-            TopPill(m_Photo, "Walk around it. Tap the shutter.", null, out _);
+            TopPill(m_Photo, "Hold it like a selfie. Tap the shutter.", null, out _, out m_PhotoHint);
             var shutter = UIFactory.CreateImage(m_Photo, "Shutter", UIFactory.Circle, UITheme.GlassStrong, true);
             UIFactory.Place(shutter.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 230f), new Vector2(164f, 164f));
             shutter.rectTransform.pivot = new Vector2(0.5f, 0.5f);
@@ -424,11 +427,14 @@ namespace GooseBrawl
             var btn = shutter.gameObject.AddComponent<Button>();
             btn.targetGraphic = shutter;
             var bc = btn.colors; bc.normalColor = Color.white; bc.highlightedColor = Color.white; bc.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f); bc.fadeDuration = 0.05f; btn.colors = bc;
+            m_PhotoShutter = btn;
             btn.onClick.AddListener(() => GooseGameManager.Instance.OnShutterPressed());
             var press = shutter.gameObject.AddComponent<UIButtonPress>();
             press.target = shutter.rectTransform;
             SmallGlassButton(m_Photo, "PhotoBack", "BACK", new Vector2(0f, 0f), new Vector2(40f, 190f), new Vector2(200f, 84f),
                 () => GooseGameManager.Instance.OnPhotoBackPressed(), out _);
+            SmallGlassButton(m_Photo, "PhotoFlip", "FLIP", new Vector2(1f, 0f), new Vector2(-40f, 190f), new Vector2(200f, 84f),
+                () => GooseGameManager.Instance.OnPhotoFlipPressed(), out _);
         }
 
         /// <summary>
@@ -735,15 +741,14 @@ namespace GooseBrawl
             return string.Join("   ·   ", parts);
         }
 
-        /// <summary>MOVE NEST · SHARE · PHOTO, centred as a group; SHARE drops out when there is nothing to share.</summary>
+        /// <summary>SHARE · PHOTO, centred as a group; SHARE drops out when there is nothing to share.</summary>
         void LayoutActionRow(bool share)
         {
             if (m_ShareButton.gameObject.activeSelf != share) m_ShareButton.gameObject.SetActive(share);
             const float gap = 24f;
-            float wMove = 250f, wShare = 200f, wPhoto = 380f;
-            float total = wMove + gap + wPhoto + (share ? wShare + gap : 0f);
+            float wShare = 200f, wPhoto = 380f;
+            float total = wPhoto + (share ? wShare + gap : 0f);
             float x = -total * 0.5f;
-            m_MoveNestButton.anchoredPosition = new Vector2(x + wMove * 0.5f, 0f); x += wMove + gap;
             if (share) { m_ShareButton.anchoredPosition = new Vector2(x + wShare * 0.5f, 0f); x += wShare + gap; }
             m_PhotoButton.anchoredPosition = new Vector2(x + wPhoto * 0.5f, 0f);
         }
@@ -806,9 +811,17 @@ namespace GooseBrawl
             if (m_StampGroup != null) m_StampGroup.alpha = 0f;
         }
 
-        public void ShowPhotoMode()
+        public void SetPhotoCameraReady(bool ready)
+        {
+            if (m_PhotoShutter != null) m_PhotoShutter.interactable = ready;
+            if (m_PhotoHint != null) m_PhotoHint.Text = !ready ? "Opening camera…" :
+                (GooseGameManager.Instance.SelfieMode ? "Hold it like a selfie. Tap the shutter." : "Walk around it. Tap the shutter.");
+        }
+
+        public void ShowPhotoMode(bool selfie = true)
         {
             HideAll();
+            if (m_PhotoHint != null) m_PhotoHint.Text = selfie ? "Hold it like a selfie. Tap the shutter." : "Walk around it. Tap the shutter.";
             m_Photo.gameObject.SetActive(true);
         }
 
@@ -853,6 +866,8 @@ namespace GooseBrawl
         }
 
         /// <summary>The bread button: shown only while a throw is available; scale, ring and opacity follow the goose's closeness.</summary>
+        public bool BreadVisible => m_BreadButton != null && m_BreadButton.gameObject.activeInHierarchy && (m_OverlayGroup == null || m_OverlayGroup.alpha > 0f);
+
         public void SetBread(bool visible, float danger)
         {
             if (m_BreadButton == null) return;
@@ -880,6 +895,13 @@ namespace GooseBrawl
             m_SubtitlePill.gameObject.SetActive(true);
             m_SubtitlePill.SetAsLastSibling();
             StartCoroutine(PopIn(m_SubtitlePill, 0.18f));
+        }
+
+        /// <summary>The line stopped early (interrupted, round over): the pill goes with it, so it never shows words nobody hears.</summary>
+        public void HideSubtitle()
+        {
+            m_SubtitleUntil = 0f;
+            if (m_SubtitlePill != null && m_SubtitlePill.gameObject.activeSelf) m_SubtitlePill.gameObject.SetActive(false);
         }
 
         public void SetDanger(float danger, bool gooseBehind, float angle, bool gooseVisible)

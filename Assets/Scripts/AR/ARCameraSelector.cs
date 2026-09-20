@@ -43,12 +43,14 @@ namespace GooseBrawl
         {
             if (cameraManager == null) yield break;
             float t = 0f;
-            while (ARSession.state < ARSessionState.SessionInitializing && t < 8f)
+            while ((ARSession.state < ARSessionState.SessionInitializing || cameraManager.currentFacingDirection != CameraFacingDirection.World) && t < 8f)
             {
-                t += Time.deltaTime;
+                if (cameraManager.requestedFacingDirection != CameraFacingDirection.World) yield break;
+                t += Time.unscaledDeltaTime;
                 yield return null;
             }
-            yield return new WaitForSeconds(0.5f);
+            yield return new WaitForSecondsRealtime(0.5f);
+            if (cameraManager.requestedFacingDirection != CameraFacingDirection.World || cameraManager.currentFacingDirection != CameraFacingDirection.World) yield break;
 
             NativeArray<XRCameraConfiguration> configs;
             try

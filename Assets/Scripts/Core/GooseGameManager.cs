@@ -191,6 +191,7 @@ namespace GooseBrawl
             UI.ShowStart(Score.BestScore, Score.BestTime, UseMockAR);
             m_BreadIcon = BreadIconRenderer.Create(Materials);
             UI.SetBreadTexture(m_BreadIcon != null ? m_BreadIcon.Texture : null);
+            StartCoroutine(PrewarmGameplayAssets());
             if (Yell != null)
             {
                 Yell.Yelled += OnPlayerYelled;
@@ -204,6 +205,34 @@ namespace GooseBrawl
             Time.timeScale = 1f;
             if (Placement != null) Placement.Placed -= OnNestPlaced;
             if (Instance == this) Instance = null;
+        }
+
+        public bool GameplayAssetsWarm { get; private set; }
+
+        IEnumerator PrewarmGameplayAssets()
+        {
+            // Keep title/scan frames responsive: generate one cached asset per frame, before it is needed.
+            yield return null;
+            ProceduralAssets.SpeckleTexture(512);
+            yield return null;
+            ProceduralAssets.FeatherTexture();
+            yield return null;
+            ProceduralAssets.EggMesh("EggMesh", EggController.EggWidth, EggController.EggHeight);
+            yield return null;
+            if (Materials != null)
+            {
+                // Asset-backed materials are already loaded; only exercise the procedural fallbacks when necessary.
+                _ = Materials.Bread;
+                _ = Materials.Crumbs;
+                _ = Materials.Dust;
+                if (Materials.Nest.GetTexture("_BaseMap") == null)
+                {
+                    ProceduralAssets.TwigStripTexture();
+                    yield return null;
+                    ProceduralAssets.TwigNormalTexture();
+                }
+            }
+            GameplayAssetsWarm = true;
         }
 
         void Update()
@@ -731,6 +760,7 @@ namespace GooseBrawl
             if (Yell != null) Yell.EndListening();
             EndRoundTelemetry("caught");
             UI.SetLocatorTarget(null);
+            if (Goose != null && Goose.Voice != null) Goose.Voice.RoundEnded(); // a dodge line mid-sentence would talk over the tackle
             Audio.PlayCaught(Goose != null ? Goose.transform.position : Player.FlatPosition);
             Haptics.Play(HapticsService.Pattern.Catch);
             Danger.CaughtEffect();
@@ -790,6 +820,7 @@ namespace GooseBrawl
             UI.SetLocatorTarget(null);
             UI.SetBread(false, 0f);
             Danger.ResetEffects();
+            if (Goose != null && Goose.Voice != null) Goose.Voice.RoundEnded();
             if (Goose != null) Goose.GiveUp();
             StartFlow(WinRoutine());
         }
@@ -1021,25 +1052,87 @@ namespace GooseBrawl
             GooseTelemetry.Increment("share.opened", 1, ("won", LastRoundWon.ToString()));
         }
 
-        /// <summary>PHOTO WITH KEVIN: the card slides away, the goose poses, you frame the shot.</summary>
+        /// <summary>Photo mode is using the front camera with the goose over your shoulder (FLIP goes back to the room).</summary>
+        public bool SelfieMode { get; private set; }
+        public bool PhotoCameraReady { get; private set; }
+        Coroutine m_PhotoCameraRoutine;
+
+        void PreparePhotoCamera()
+        {
+            if (m_PhotoCameraRoutine != null) StopCoroutine(m_PhotoCameraRoutine);
+            PhotoCameraReady = false;
+            UI.SetPhotoCameraReady(false);
+            if (Goose.Voice != null) Goose.Voice.Interrupt();
+            Goose.EndPhotoPose();
+            m_PhotoCameraRoutine = StartCoroutine(WaitForPhotoCamera());
+        }
+
+        IEnumerator WaitForPhotoCamera()
+        {
+            yield return null;
+            float until = Time.unscaledTime + 5f;
+            while (AR != null && !AR.PhotoCameraReady && Time.unscaledTime < until) yield return null;
+            if (AR != null && !AR.PhotoCameraReady && SelfieMode)
+            {
+                AR.SetSelfieCamera(false);
+                SelfieMode = false;
+                UI.ShowPhotoMode(false);
+                UI.SetPhotoCameraReady(false);
+                UI.ShowMessage("Selfie camera unavailable. Using rear camera.", 3f);
+                until = Time.unscaledTime + 5f;
+                while (!AR.PhotoCameraReady && Time.unscaledTime < until) yield return null;
+            }
+            PhotoCameraReady = AR == null || AR.PhotoCameraReady;
+            if (PhotoCameraReady && Goose != null) Goose.BeginPhotoPose(SelfieMode);
+            UI.SetPhotoCameraReady(PhotoCameraReady);
+            if (!PhotoCameraReady) UI.ShowMessage("Camera unavailable. Tap BACK to try again.", 3f);
+            m_PhotoCameraRoutine = null;
+        }
+
+        /// <summary>PHOTO WITH KEVIN: the card slides away, the front camera comes on and the goose photobombs beside you.</summary>
         public void OnPhotoPressed()
         {
-            if (State != GooseGameState.GameOver || Goose == null) return;
+            if (State != GooseGameState.GameOver || Goose == null || UI.PhotoModeActive) return;
             Haptics.Light();
-            UI.ShowPhotoMode();
-            Goose.BeginPhotoPose();
+            SelfieMode = AR != null && AR.selfiePhotoMode && AR.SetSelfieCamera(true);
+            UI.ShowPhotoMode(SelfieMode);
+            PreparePhotoCamera();
+            GooseTelemetry.Increment("photo.opened", 1, ("selfie", SelfieMode.ToString()));
+        }
+
+        /// <summary>FLIP in photo mode: selfie with the goose, or the goose posing in the room through the world camera.</summary>
+        public void OnPhotoFlipPressed()
+        {
+            if (State != GooseGameState.GameOver || Goose == null || !UI.PhotoModeActive || m_Shutter || m_PhotoCameraRoutine != null) return;
+            bool selfie = !SelfieMode;
+            if (AR == null || !AR.SetSelfieCamera(selfie)) return;
+            SelfieMode = selfie;
+            Haptics.Light();
+            UI.ShowPhotoMode(SelfieMode);
+            PreparePhotoCamera();
         }
 
         public void OnPhotoBackPressed()
         {
             if (State != GooseGameState.GameOver) return;
-            if (Goose != null) Goose.EndPhotoPose();
+            LeavePhotoMode();
             UI.ShowResultsAgain();
+        }
+
+        /// <summary>World camera back on and the goose back where it stood. Safe to call when photo mode is not open.</summary>
+        void LeavePhotoMode()
+        {
+            if (m_PhotoCameraRoutine != null) StopCoroutine(m_PhotoCameraRoutine);
+            m_PhotoCameraRoutine = null;
+            PhotoCameraReady = false;
+            if (SelfieMode && AR != null) AR.SetSelfieCamera(false);
+            SelfieMode = false;
+            if (Goose != null) Goose.EndPhotoPose();
         }
 
         public void OnShutterPressed()
         {
-            if (State != GooseGameState.GameOver || Share == null || m_Shutter || !UI.PhotoModeActive) return;
+            if (State != GooseGameState.GameOver || Share == null || m_Shutter || !UI.PhotoModeActive || !PhotoCameraReady || (AR != null && !AR.PhotoCameraReady)) return;
             StartCoroutine(ShutterRoutine());
         }
 
@@ -1061,10 +1154,12 @@ namespace GooseBrawl
             m_Shutter = false;
         }
 
+        /// <summary>Game over -> a new round always starts by placing the nest again (the old spot is never reused).</summary>
         public void OnRunAgainPressed()
         {
             if (State != GooseGameState.GameOver) return;
             Time.timeScale = 1f;
+            LeavePhotoMode();
             if (Share != null) Share.ClearShot();
             ClearGoose();
             Danger.ResetEffects();
@@ -1073,14 +1168,10 @@ namespace GooseBrawl
             BeginBrainSession();
             if (Nest != null)
             {
-                Nest.ResetEgg();
-                SetState(GooseGameState.EggReady);
-                UI.ShowEgg();
+                Nest.Egg.ClearCrackedEgg();
+                Nest.gameObject.SetActive(false);
             }
-            else
-            {
-                BeginPlacement();
-            }
+            BeginPlacement();
         }
 
         /// <summary>Game over -> pick a new spot for the nest.</summary>
@@ -1088,6 +1179,7 @@ namespace GooseBrawl
         {
             if (State != GooseGameState.GameOver) return;
             Time.timeScale = 1f;
+            LeavePhotoMode();
             if (Share != null) Share.ClearShot();
             ClearGoose();
             Danger.ResetEffects();

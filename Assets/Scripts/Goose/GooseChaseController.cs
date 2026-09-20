@@ -151,6 +151,20 @@ namespace GooseBrawl
         int m_ApologyCount;
         Coroutine m_PhotoPose;
 
+        [Header("Selfie")]
+        [Tooltip("Selfie spot: how far in front of the phone the goose stands (m).")]
+        public float selfieDistance = 0.95f;
+        [Tooltip("Selfie spot: how far to the side of the phone's line of sight (m); the side is picked at random.")]
+        public float selfieSide = 0.34f;
+        [Tooltip("Selfie spot: the goose's feet this far below the lens (m), so its head ends up beside yours.")]
+        public float selfieDrop = 0.88f;
+        /// <summary>Photo mode with the front camera: the goose rides the phone and photobombs over your shoulder.</summary>
+        public bool SelfiePose { get; private set; }
+        Vector3 m_PhotoHomePos;
+        Quaternion m_PhotoHomeRot;
+        bool m_PhotoHomeSaved;
+        int m_SelfieSide = 1;
+
         void Awake()
         {
             Movement = GetComponent<GooseMovement>();
@@ -165,6 +179,8 @@ namespace GooseBrawl
             var mask = mgr.Environment.EnvironmentMask;
             Movement.environmentMask = mask;
             Avoidance.environmentMask = mask;
+            Movement.Relocated -= OnRelocated;
+            Movement.Relocated += OnRelocated;
             EnsureAudioSources();
             Voice = GetComponent<GooseVoice>();
             if (Voice == null) Voice = gameObject.AddComponent<GooseVoice>();
@@ -246,6 +262,7 @@ namespace GooseBrawl
             dir.y = 0f;
             Movement.Teleport(new Vector3(start.x, floorY + m_FlyHeight, start.z), dir);
             Movement.ExternalControl = true;
+            Movement.Airborne = true;
             m_Spawned = true;
             FlyingIn = true;
             Glaring = false;
@@ -317,6 +334,7 @@ namespace GooseBrawl
             Vector3 lp = transform.position;
             lp.y = floorY;
             transform.position = lp;
+            Movement.Airborne = false; // from here the body is kept out of whatever the LiDAR finds around the landing spot
             Visual.SetAirHeight(0f);
             Movement.SetHeading(dir);
             Visual.Play(GooseAnimationResolver.Slot.Land, 0.05f, 1.1f, true);
@@ -681,6 +699,7 @@ namespace GooseBrawl
         public void Honk(AudioManager.HonkKind kind, bool force = false)
         {
             if (!force && Time.time < m_HonkSuppressedUntil) return;
+            if (Voice != null && Voice.Speaking) return; // never over a spoken line, forced or not
             HonkCount++;
             m_Mgr.Audio.PlayGooseHonk(kind, voiceSource, Danger01);
             Visual.Procedural.TriggerHonkGesture();
@@ -706,7 +725,7 @@ namespace GooseBrawl
             Visual.SetFeatherTrail(false);
             Visual.Play(GooseAnimationResolver.Slot.Run, 0.15f, 1f);
             m_Mgr.UI.ShowHonk(transform.position, "BREAD?!", 1.1f, 1f);
-            m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Near, voiceSource, 0.2f, 0.12f);
+            if (Voice == null || !Voice.Speaking) m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Near, voiceSource, 0.2f, 0.12f);
             Visual.Procedural.TriggerHonkGesture();
             m_NextReplan = 0f;
             return true;
@@ -838,6 +857,7 @@ namespace GooseBrawl
             Visual.Procedural.Flapping = false;
             Visual.Procedural.SnapLook();
             Visual.Procedural.SquashStretch = 1.15f;
+            if (Voice != null) Voice.Interrupt(); // its name beats whatever it was saying
             m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Dramatic, voiceSource, Danger01);
             Visual.Procedural.TriggerHonkGesture();
             HonkCount++;
@@ -921,11 +941,23 @@ namespace GooseBrawl
         }
 
         // ------------------------------------------------------------------ photo mode
-        /// <summary>Results screen: stay put, turn to follow the player, flap and honk every few seconds so the photo is alive.</summary>
-        public void BeginPhotoPose()
+        /// <summary>
+        /// Results screen photo. selfie: the goose rides the phone and photobombs over your shoulder (front camera);
+        /// otherwise it stays put where it stood, turns to follow you, flaps and honks every few seconds.
+        /// </summary>
+        public void BeginPhotoPose(bool selfie = false)
         {
-            if (State != GooseState.GameOver || m_PhotoPose != null) return;
-            m_PhotoPose = StartCoroutine(PhotoPoseRoutine());
+            if (State != GooseState.GameOver) return;
+            if (m_PhotoPose != null)
+            {
+                if (SelfiePose == selfie) return;
+                StopCoroutine(m_PhotoPose);
+                m_PhotoPose = null;
+                if (SelfiePose) LeaveSelfieSpot();
+            }
+            if (!m_PhotoHomeSaved) { m_PhotoHomePos = transform.position; m_PhotoHomeRot = transform.rotation; m_PhotoHomeSaved = true; }
+            SelfiePose = selfie;
+            m_PhotoPose = StartCoroutine(selfie ? SelfiePoseRoutine() : PhotoPoseRoutine());
         }
 
         public void EndPhotoPose()
@@ -933,8 +965,108 @@ namespace GooseBrawl
             if (m_PhotoPose != null) StopCoroutine(m_PhotoPose);
             m_PhotoPose = null;
             if (State != GooseState.GameOver) return;
+            if (SelfiePose) LeaveSelfieSpot();
+            m_PhotoHomeSaved = false;
             Visual.Procedural.Flapping = false;
+            Visual.Procedural.BodyTilt = 0f;
+            Visual.Procedural.SquashStretch = 1f;
             Visual.Play(GooseAnimationResolver.Slot.Idle, 0.3f, 1f);
+        }
+
+        /// <summary>Back from the selfie spot to where it was standing when the round ended.</summary>
+        void LeaveSelfieSpot()
+        {
+            SelfiePose = false;
+            Movement.Airborne = false;
+            if (m_PhotoHomeSaved)
+            {
+                transform.position = m_PhotoHomePos;
+                transform.rotation = m_PhotoHomeRot;
+                Movement.SetHeading(m_PhotoHomeRot * Vector3.forward);
+            }
+            Visual.SetAirHeight(0f);
+        }
+
+        /// <summary>
+        /// Selfie: the goose photobombs from over your shoulder. It rides the phone (a spot beside the line of sight,
+        /// feet below the lens so its head is next to yours, upright in the world), stares down the lens with its head
+        /// cocked, and every couple of seconds honks at it, throws its wings up or pecks at the camera.
+        /// </summary>
+        IEnumerator SelfiePoseRoutine()
+        {
+            Movement.ExternalControl = true;
+            Movement.Airborne = true; // rides the phone: no floor snap, no overlap recovery, no camera bubble
+            m_SelfieSide = Random.value < 0.5f ? -1 : 1;
+            Visual.Procedural.Flapping = false;
+            Visual.Procedural.HasLookTarget = true;
+            Visual.Play(GooseAnimationResolver.Slot.Idle, 0.15f, 1f);
+            bool first = true;
+            float t = 0f, nextBeat = 0.5f, flapUntil = -1f, leanUntil = -1f;
+            int beat = 0;
+            while (true)
+            {
+                float dt = Time.deltaTime;
+                t += dt;
+                var cam = m_Mgr.Player.Cam;
+                if (cam != null)
+                {
+                    Transform c = cam.transform;
+                    float bob = 0.02f * Mathf.Sin(t * 2.3f);
+                    // Compose the head in camera space: flattening camera.forward loses selfie framing when tilted.
+                    // ViewportToWorldPoint respects ARKit's off-centre projection as well as portrait/landscape.
+                    Vector3 centre = cam.ViewportToWorldPoint(new Vector3(0.5f, 0.56f, selfieDistance));
+                    Vector3 edge = cam.ViewportToWorldPoint(new Vector3(0.5f + m_SelfieSide * 0.28f, 0.56f, selfieDistance));
+                    Vector3 head = centre + Vector3.ClampMagnitude(edge - centre, selfieSide);
+                    Vector3 toLens = c.position - head; toLens.y = 0f;
+                    if (toLens.sqrMagnitude > 1e-4f)
+                    {
+                        float lean = t < leanUntil ? 16f : 7f; // head cocked toward you, more on a beat
+                        var face = Quaternion.LookRotation(toLens.normalized, Vector3.up) * Quaternion.Euler(0f, 0f, -m_SelfieSide * lean);
+                        transform.rotation = first ? face : Quaternion.Slerp(transform.rotation, face, 1f - Mathf.Exp(-dt * 8f));
+                    }
+                    // The animated model's head leans away from its root. Frame the actual head, not
+                    // a guessed height above the feet, so the goose leaves the centre free for the person.
+                    Vector3 headOffset = Visual.headBone != null ? Visual.headBone.position - transform.position : Vector3.up * selfieDrop;
+                    Vector3 spot = head + Vector3.up * bob - headOffset;
+                    transform.position = first ? spot : Vector3.Lerp(transform.position, spot, 1f - Mathf.Exp(-dt * 10f));
+                    Visual.Procedural.LookTarget = c.position;
+                    first = false;
+                }
+                Visual.SetAirHeight(0f);
+                if (Visual.Procedural.Flapping && t >= flapUntil)
+                {
+                    Visual.Procedural.Flapping = false;
+                    Visual.Play(GooseAnimationResolver.Slot.Idle, 0.3f, 1f);
+                }
+                if (t >= nextBeat)
+                {
+                    beat++;
+                    nextBeat = t + Random.Range(1.5f, 2.4f);
+                    leanUntil = t + 0.8f;
+                    switch (beat % 3)
+                    {
+                        case 1: // straight down the lens
+                            m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Angry, voiceSource, 0.7f);
+                            Visual.Procedural.TriggerHonkGesture();
+                            Visual.Procedural.SquashStretch = 1.15f;
+                            break;
+                        case 2: // wings up, feathers
+                            Visual.Play(GooseAnimationResolver.Slot.Flap, 0.1f, 1.2f, true);
+                            Visual.Procedural.Flapping = true;
+                            Visual.Procedural.FlapIntensity = 1f;
+                            flapUntil = t + 0.9f;
+                            m_Mgr.Audio.PlayFlap(bodySource);
+                            Visual.FeatherBurst(5);
+                            break;
+                        default: // a peck at the camera
+                            Visual.Play(GooseAnimationResolver.Slot.Attack, 0.05f, 1.1f, true);
+                            Visual.Procedural.PeckPulse();
+                            m_Mgr.Haptics.Light();
+                            break;
+                    }
+                }
+                yield return null;
+            }
         }
 
         IEnumerator PhotoPoseRoutine()
@@ -966,6 +1098,16 @@ namespace GooseBrawl
                     m_Mgr.UI.ShowHonk(transform.position, "HONK!!", 0.9f, 1.1f);
                 }
             }
+        }
+
+        /// <summary>Scanned geometry turned up around the standing goose (the chair it landed in): it squeezed out to a free spot.</summary>
+        void OnRelocated(Vector3 from, Vector3 to)
+        {
+            Visual.FeatherBurst(8);
+            Visual.LandingEffect();
+            m_Mgr.Audio.PlayFlap(bodySource);
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "goose.relocated", ("distance_m", Vector3.Distance(from, to)), ("state", State.ToString()),
+                ("mesh_chunks", m_Mgr.Environment != null ? m_Mgr.Environment.MeshCount : 0));
         }
 
         void EnterAngryFlap(float duration, bool quiet = false)

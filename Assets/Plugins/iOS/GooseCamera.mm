@@ -23,13 +23,32 @@ int GooseCamera_FormatInfo(void* handle, int* isUltraWide, int* width, int* heig
 
 // Audio session: Unity/FMOD picks the Ambient category, which obeys the silent switch, so the goose is mute the moment the
 // ringer is off. Playback ignores the switch. Only applied while the microphone is NOT recording (recording needs PlayAndRecord).
+static BOOL g_SessionReleased = NO;
+
+// Returns 2 when nothing had to change, 1 when the category was set / the session re-activated, 0 on failure.
 int GooseAudio_ApplyPlayback(void)
 {
     AVAudioSession* session = [AVAudioSession sharedInstance];
     NSError* err = nil;
-    if ([session.category isEqualToString:AVAudioSessionCategoryPlayback]) return 2;
-    BOOL ok = [session setCategory:AVAudioSessionCategoryPlayback withOptions:0 error:&err];
+    BOOL already = [session.category isEqualToString:AVAudioSessionCategoryPlayback];
+    // After GooseAudio_Release (backgrounded) the category is still Playback but the session is inactive: activate again.
+    if (already && !g_SessionReleased) return 2;
+    BOOL ok = already || [session setCategory:AVAudioSessionCategoryPlayback withOptions:0 error:&err];
     if (ok) ok = [session setActive:YES error:&err];
+    if (ok) g_SessionReleased = NO;
+    else NSLog(@"[GooseAudio] playback session failed: %@", err);
+    return ok ? 1 : 0;
+}
+
+// Backgrounded: give the audio hardware back so nothing of the game lingers on the home screen and other apps' audio
+// resumes. Unity/FMOD re-activates its session on foreground; GooseAudio_ApplyPlayback follows right after.
+int GooseAudio_Release(void)
+{
+    AVAudioSession* session = [AVAudioSession sharedInstance];
+    NSError* err = nil;
+    BOOL ok = [session setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&err];
+    if (ok) g_SessionReleased = YES;
+    else NSLog(@"[GooseAudio] session release failed: %@", err);
     return ok ? 1 : 0;
 }
 

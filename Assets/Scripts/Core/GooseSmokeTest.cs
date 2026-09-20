@@ -57,6 +57,49 @@ namespace GooseBrawl
             }
         }
 
+        IEnumerator CheckVoiceTransitions(GooseGameManager mgr, GooseChaseController goose)
+        {
+            var voice = goose.Voice;
+            voice.Interrupt();
+            var clip = ProceduralAudio.Honk("VoiceRegression", 1f, 0.7f, 19);
+            int before = voice.SpokenCount;
+            mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Rage, goose.voiceSource, 1f);
+            voice.Say(clip, "CANCEL BEFORE START", "test", GooseLines.Beat.Dodge);
+            yield return null;
+            voice.Interrupt();
+            yield return new WaitForSecondsRealtime(0.5f);
+            Check(voice.SpokenCount == before && !voice.Speaking, "Interrupt cancels a dequeued line waiting for a honk");
+
+            voice.Say(clip, "SPEECH OWNS CHANNEL", "test");
+            yield return new WaitForSecondsRealtime(0.5f);
+            Check(voice.Speaking, "Speech starts promptly after interruption");
+            var speech = goose.voiceSource.transform.Find("Speech").GetComponent<AudioSource>();
+            float pitch = speech.pitch;
+            mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Rage, goose.voiceSource, 1f);
+            Check(!goose.voiceSource.isPlaying && Mathf.Approximately(speech.pitch, pitch), "Honk cannot overlap or retune speech");
+            voice.Interrupt();
+            Check(!voice.Speaking && !speech.isPlaying && speech.clip == null, "Interrupt stops speech and clears source");
+
+            before = voice.SpokenCount;
+            voice.Say(clip, "OLD INTRO", "test", GooseLines.Beat.Intro);
+            voice.RoundEnded();
+            yield return new WaitForSecondsRealtime(0.1f);
+            Check(voice.SpokenCount == before, "Round end also removes a pending intro");
+            voice.Say(clip, "OLD REACTION", "test", GooseLines.Beat.Dodge);
+            voice.Say(clip, "LATEST REACTION", "test", GooseLines.Beat.Bread);
+            yield return new WaitForSecondsRealtime(0.1f);
+            Check(voice.SpokenCount == before + 1 && voice.LastText == "LATEST REACTION", "Only the newest pending reaction plays");
+            voice.Interrupt();
+            before = voice.SpokenCount;
+            voice.Say(clip, "EXPIRED", "test", GooseLines.Beat.Dodge, Time.unscaledTime - 10f);
+            yield return new WaitForSecondsRealtime(0.1f);
+            voice.Say(clip, "AFTER EXPIRED", "test");
+            yield return new WaitForSecondsRealtime(0.1f);
+            Check(voice.SpokenCount == before + 1 && voice.Speaking, "Expired queue cannot stall later speech");
+            voice.Interrupt();
+            Destroy(clip);
+        }
+
         IEnumerator Run()
         {
             yield return null;
@@ -68,6 +111,7 @@ namespace GooseBrawl
             Check(mgr.Player.HasCamera, "PlayerTracker sees a camera");
             Check(mgr.Environment.EnvironmentLayer > 0, "AREnvironment layer resolved (" + mgr.Environment.EnvironmentLayer + ")");
             Check(mgr.goosePrefab != null, "Goose prefab assigned");
+            Check(mgr.Chaos != null && !mgr.Chaos.flockAmbienceEnabled && !mgr.Chaos.breathingEnabled, "Uncaptioned flock/baby-like breathing layers disabled");
             Check(mgr.Audio.honkClip != null && mgr.Audio.whooshClip != null && mgr.Audio.BreathClip != null && mgr.Audio.HeartbeatClip != null, "Procedural audio clips generated");
             Check(mgr.Look != null, "CinematicLookController present");
             Check(mgr.Materials != null && mgr.Materials.ShadowCatcher != null, "Shadow catcher material available");
@@ -90,6 +134,9 @@ namespace GooseBrawl
             }
             yield return WaitForState(mgr, GooseGameState.PlaceNest, 12f);
             Check(mgr.State == GooseGameState.PlaceNest, "Scan -> PlaceNest (floor found)");
+            Check(mgr.GameplayAssetsWarm, "Procedural gameplay assets warm before placement");
+            var breadIcon = FindAnyObjectByType<BreadIconRenderer>();
+            Check(breadIcon != null && !breadIcon.Rendering, "Bread icon camera idle while button is hidden");
             yield return new WaitForSeconds(0.3f);
             yield return Shot("03_place");
 
@@ -157,10 +204,30 @@ namespace GooseBrawl
             t = 0f;
             while (!goose.Glaring && goose.FlyingIn && t < 10f) { t += Time.deltaTime; yield return null; }
             Check(goose.Glaring, "Goose glares after landing");
+            Check(goose.Visual.EffectsReady, "Dust, crumbs and feather systems prepared before chase");
             Vector3 glarePos = goose.transform.position;
             yield return new WaitForSeconds(1.2f);
             Check(mgr.State == GooseGameState.EggStolen, "Chase has not started while the goose is unseen");
             Check(Vector3.Distance(glarePos, goose.transform.position) < 0.05f, "Goose holds position during the glare");
+            // On the phone the LiDAR chunk of the chair it landed in can arrive after the landing: the standing goose has to
+            // step out of it on its own. A box appears around it, slightly toward the player, so the way out is straight back.
+            Vector3 toPlayerFlat = mgr.Player.FlatPosition - glarePos; toPlayerFlat.y = 0f; toPlayerFlat.Normalize();
+            var lateChair = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            lateChair.name = "MockLateChair";
+            lateChair.transform.position = glarePos + toPlayerFlat * 0.15f + Vector3.up * 0.45f;
+            lateChair.transform.localScale = new Vector3(0.7f, 0.9f, 0.7f);
+            lateChair.layer = mgr.Environment.EnvironmentLayer;
+            Physics.SyncTransforms(); // a collider created this frame is not in the physics scene until the transforms sync
+            yield return null;
+            Check(!goose.Avoidance.IsPositionFree(glarePos), "Late furniture overlaps the standing goose (test setup)");
+            t = 0f;
+            while (t < 2f && !goose.Avoidance.IsPositionFree(goose.transform.position)) { t += Time.deltaTime; yield return null; }
+            float steppedOut = Vector3.Distance(glarePos, goose.transform.position);
+            Check(goose.Avoidance.IsPositionFree(goose.transform.position) && steppedOut > 0.2f,
+                "Goose stepped out of furniture that appeared around it (" + steppedOut.ToString("F2") + " m in " + t.ToString("F2") + " s, pushes=" + goose.Avoidance.OverlapPushCount + ", relocations=" + goose.Avoidance.RelocationCount + ")");
+            Check(goose.Glaring && mgr.State == GooseGameState.EggStolen, "Still glaring after stepping out");
+            Destroy(lateChair);
+            yield return null;
             yield return Shot("06_glare_behind");
 
             // Turn back: the locator should have pointed us here; once seen the chase begins.
@@ -280,6 +347,9 @@ namespace GooseBrawl
             }
             mgr.OnBreadPressed();
             Check(mgr.BreadsThrown == 1, "Bread thrown (HUD button / B key)");
+            var thrownBread = FindAnyObjectByType<BreadController>();
+            Check(thrownBread != null && breadIcon != null && thrownBread.GetComponentInChildren<MeshFilter>().sharedMesh == breadIcon.GetComponentInChildren<MeshFilter>().sharedMesh,
+                "Bread throw reuses the icon's already-built mesh");
             t = 0f;
             bool breadEating = false, breadEaten = false;
             while (t < 14f && mgr.ChaseActive)
@@ -319,6 +389,8 @@ namespace GooseBrawl
                 Sample(mgr, goose, crateCol);
                 yield return null;
             }
+            yield return null;
+            Check(breadIcon != null && !breadIcon.Rendering, "Bread icon camera stops rendering at round end");
             Check(mgr.State == GooseGameState.GameOver, "Goose caught the player (after " + t.ToString("F1") + " s, lunges=" + m_LungeCount + ")");
             yield return Shot("11_caught");
             Check(m_PenetrationFrames == 0 || m_PenetrationFrames < m_ChaseFrames * 0.02f,
@@ -341,6 +413,43 @@ namespace GooseBrawl
 
             yield return new WaitForSecondsRealtime(2.5f);
             yield return Shot("12_gameover");
+
+            yield return CheckVoiceTransitions(mgr, goose);
+
+            // Selfie with the goose (from the results card, once it is up): PHOTO WITH switches to the front camera (the mock
+            // keeps its one camera) and the goose photobombs beside the phone; the shutter captures it; BACK puts it back.
+            Vector3 stoodAt = goose.transform.position;
+            int shotsBefore = mgr.Share != null ? mgr.Share.ShotCount : 0;
+            mgr.OnPhotoPressed();
+            mgr.OnShutterPressed();
+            Check(!mgr.PhotoCameraReady && mgr.Share.ShotCount == shotsBefore, "Shutter waits for the requested camera");
+            yield return new WaitForSecondsRealtime(0.9f);
+            Check(mgr.UI.PhotoModeActive && mgr.SelfieMode && goose.SelfiePose, "Photo mode opened as a selfie");
+            Vector3 selfieHead = goose.Visual.headBone.position;
+            float selfieDist = Vector3.Distance(mgr.Player.Cam.transform.position, selfieHead);
+            Vector3 headViewport = mgr.Player.Cam.WorldToViewportPoint(selfieHead);
+            Check(mgr.Player.IsInView(selfieHead, 0.05f) && selfieDist < 1.5f && Mathf.Abs(headViewport.x - 0.5f) > 0.15f,
+                "Goose head is over the shoulder with centre free for the person (" + selfieDist.ToString("F2") + " m from lens)");
+            Quaternion selfieRotation = mgr.Player.Cam.transform.rotation;
+            mgr.Mock.LookAt(mgr.Player.Cam.transform.position + Quaternion.Euler(-35f, selfieRotation.eulerAngles.y, 0f) * Vector3.forward * 2f);
+            yield return new WaitForSecondsRealtime(0.5f);
+            Check(mgr.Player.IsInView(goose.Visual.headBone.position, 0.05f), "Selfie head stays framed when phone tilts");
+            mgr.Mock.LookAt(mgr.Player.Cam.transform.position + selfieRotation * Vector3.forward * 2f);
+            yield return new WaitForSecondsRealtime(0.5f);
+            yield return Shot("12b_selfie");
+            mgr.OnShutterPressed();
+            t = 0f;
+            while (t < 3f && mgr.Share != null && mgr.Share.ShotCount == shotsBefore) { t += Time.unscaledDeltaTime; yield return null; }
+            Check(mgr.Share != null && mgr.Share.ShotCount > shotsBefore, "Shutter captured the selfie");
+            mgr.OnPhotoFlipPressed();
+            yield return new WaitForSecondsRealtime(0.1f);
+            Check(!mgr.SelfieMode && !goose.SelfiePose && mgr.PhotoCameraReady, "FLIP restores rear camera and world pose");
+            mgr.OnPhotoFlipPressed();
+            yield return new WaitForSecondsRealtime(0.1f);
+            Check(mgr.SelfieMode && goose.SelfiePose && mgr.PhotoCameraReady, "FLIP returns to a ready selfie");
+            mgr.OnPhotoBackPressed();
+            yield return null;
+            Check(!mgr.UI.PhotoModeActive && !goose.SelfiePose && Vector3.Distance(goose.transform.position, stoodAt) < 0.05f, "BACK from the selfie: results card again, goose back where it stood");
             if (online)
             {
                 // Goose Board: the results card's POST TO BOARD path end to end (the Worker answers with a rank).
@@ -353,7 +462,10 @@ namespace GooseBrawl
             }
             mgr.OnRunAgainPressed();
             yield return null;
-            Check(mgr.State == GooseGameState.EggReady, "Run again -> EggReady");
+            Check(mgr.State == GooseGameState.PlaceNest, "Run again -> PlaceNest (the nest is always placed again)");
+            mgr.Placement.TryPlaceAtScreenPoint(new Vector2(Screen.width * 0.5f, Screen.height * 0.35f));
+            yield return WaitForState(mgr, GooseGameState.EggReady, 3f);
+            Check(mgr.State == GooseGameState.EggReady, "Round 2 nest placed -> EggReady");
 
             // Round 2: outlast the goose (short timer) -> the win card with the sore-loser line.
             mgr.outlastSeconds = 6f;
@@ -383,7 +495,7 @@ namespace GooseBrawl
             Check(goose2 != null && goose2.State == GooseState.GameOver, "Goose gave up (terminal state)");
             mgr.OnRunAgainPressed();
             yield return null;
-            Check(mgr.State == GooseGameState.EggReady, "Run again after the win -> EggReady");
+            Check(mgr.State == GooseGameState.PlaceNest, "Run again after the win -> PlaceNest");
             Finish();
         }
 
@@ -410,8 +522,10 @@ namespace GooseBrawl
         void Finish()
         {
             var header = m_Failures == 0 ? "[Smoke] PASSED" : "[Smoke] FAILED (" + m_Failures + " checks)";
+            var lastGoose = GooseGameManager.Instance != null ? GooseGameManager.Instance.Goose : null;
             Debug.Log(header + "\n" + m_Report + "  stats: minDist=" + m_MinDistance.ToString("F2") + " maxSpeed=" + m_MaxSpeed.ToString("F2") +
-                      " lunges=" + m_LungeCount + " stunnedFrames=" + m_StuckCount + "\n[Smoke] END");
+                      " lunges=" + m_LungeCount + " stunnedFrames=" + m_StuckCount +
+                      (lastGoose != null ? " overlapPushes=" + lastGoose.Avoidance.OverlapPushCount + " relocations=" + lastGoose.Avoidance.RelocationCount : "") + "\n[Smoke] END");
             StartCoroutine(ExitSoon());
         }
 

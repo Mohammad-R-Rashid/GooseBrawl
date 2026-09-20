@@ -371,7 +371,8 @@ MonoBehaviour:
   environmentMask:
     serializedVersion: 2
     m_Bits: 0
-  minCameraDistance: 0.6
+  minCameraDistance: 0.75
+  overlapCheckRate: 20
   stuckCheckInterval: 1
   stuckDistance: 0.18
 --- !u!114 &3974378296142743632
@@ -387,7 +388,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GooseBrawl.GooseObstacleAvoidance
   bodyRadius: 0.32
-  bodyHeight: 0.7
+  bodyHeight: 0.95
+  bodyBottom: 0.1
+  maxPushPerPass: 0.3
+  floorNoiseTolerance: 0.12
   lookAhead: 1
   emergencyStopDistance: 0.28
   floorProbeHeight: 0.5
@@ -580,6 +584,13 @@ MonoBehaviour:
   eatSeconds: 2.8
   breadReach: 0.38
   flinchSeconds: 1.2
+  nameCalledSeconds: 1.2
+  speechHoldMaxSeconds: 1.6
+  selfieDistance: 0.95
+  selfieSide: 0.34
+  selfieDrop: 0.88
+  featherAccelThreshold: 2.2
+  featherTurnThresholdDeg: 220
 --- !u!1 &6897599758188997178
 GameObject:
   m_ObjectHideFlags: 0

@@ -24,6 +24,7 @@ namespace GooseBrawl
         RectTransform m_Safe;
         float m_Pulse;
         float m_Visible;
+        int m_DistanceTenths = int.MinValue;
 
         public static GooseLocator Create(RectTransform safeArea)
         {
@@ -123,7 +124,12 @@ namespace GooseBrawl
 
             var mgr = GooseGameManager.Instance;
             float dist = mgr != null ? mgr.Player.FlatDistanceTo(Target.position) : 0f;
-            m_Distance.Text = dist.ToString("0.0") + " m";
+            int tenths = Mathf.RoundToInt(dist * 10f);
+            if (tenths != m_DistanceTenths)
+            {
+                m_DistanceTenths = tenths;
+                m_Distance.Text = (tenths * 0.1f).ToString("0.0") + " m";
+            }
             m_Behind.SetActive(behind);
 
             Color c = Color.Lerp(UITheme.Ink, UITheme.Danger, Mathf.Clamp01((Danger - 0.35f) / 0.5f));

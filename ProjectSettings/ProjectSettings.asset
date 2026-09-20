@@ -867,7 +867,7 @@ PlayerSettings:
   scriptingDefineSymbols:
     Android: GOOSE_SENTRY
     Standalone: GOOSE_SENTRY
-    iPhone: UNITY_XR_ARKIT_LOADER_ENABLED;GOOSE_SENTRY
+    iPhone: UNITY_XR_ARKIT_LOADER_ENABLED;GOOSE_SENTRY;UNITY_XR_ARKIT_FACE_TRACKING_ENABLED
   additionalCompilerArguments: {}
   platformArchitecture:
     iPhone: 1

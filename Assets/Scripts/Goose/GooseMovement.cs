@@ -19,8 +19,12 @@ namespace GooseBrawl
         public LayerMask environmentMask;
 
         [Header("Player space")]
-        [Tooltip("The goose body never comes closer than this to the camera, so you can never see inside it.")]
-        public float minCameraDistance = 0.6f;
+        [Tooltip("The goose body never comes closer than this to the camera (root to lens, flat), so you can never see inside it. Must stay below the chase controller's catchDistance.")]
+        public float minCameraDistance = 0.75f;
+
+        [Header("Body")]
+        [Tooltip("How often a standing goose checks that its body is clear of scanned geometry (Hz). One overlap query per check when clear.")]
+        public float overlapCheckRate = 20f;
 
         [Header("Stuck detection")]
         public float stuckCheckInterval = 1f;
@@ -29,6 +33,11 @@ namespace GooseBrawl
         public float FloorY { get; set; }
         /// <summary>While true another system (the lunge) drives the transform.</summary>
         public bool ExternalControl { get; set; }
+        /// <summary>Set by the fly-in and the hops while the goose is off the floor: no overlap recovery in the air.</summary>
+        public bool Airborne { get; set; }
+        /// <summary>The body was moved to a free spot because geometry (a late LiDAR chunk) had it inside (from, to).</summary>
+        public event System.Action<Vector3, Vector3> Relocated;
+        public GooseObstacleAvoidance.OverlapResult LastOverlap { get; private set; }
         public float CurrentSpeed { get; private set; }
         public float DesiredSpeed { get; private set; }
         public Vector3 DesiredDir { get; private set; } = Vector3.forward;
@@ -37,6 +46,13 @@ namespace GooseBrawl
 
         Vector3 m_StuckAnchor;
         float m_StuckTimer;
+        GooseObstacleAvoidance m_Avoidance;
+        float m_NextOverlapCheck;
+
+        void Awake()
+        {
+            m_Avoidance = GetComponent<GooseObstacleAvoidance>();
+        }
 
         public void SetDesired(Vector3 dir, float speed)
         {
@@ -130,6 +146,37 @@ namespace GooseBrawl
                 m_StuckTimer = 0f;
                 m_StuckAnchor = pos;
                 Stuck = false;
+            }
+        }
+
+        /// <summary>
+        /// Every state in which the goose stands on the floor (chase, glare, stunned, results): keep the body out of
+        /// geometry that overlaps it and out of the phone's bubble. Runs after the state logic and the hop coroutines
+        /// have placed the goose for this frame, at overlapCheckRate while clear and every frame while inside something.
+        /// </summary>
+        void LateUpdate()
+        {
+            if (Airborne || m_Avoidance == null) return;
+            bool inside = LastOverlap == GooseObstacleAvoidance.OverlapResult.Pushed || LastOverlap == GooseObstacleAvoidance.OverlapResult.Stuck;
+            if (!inside && Time.time < m_NextOverlapCheck) return;
+            m_NextOverlapCheck = Time.time + 1f / Mathf.Max(1f, overlapCheckRate);
+
+            Vector3 before = transform.position;
+            Vector3 pos = before;
+            var cam = Camera.main;
+            Vector3 playerFlat = cam != null ? new Vector3(cam.transform.position.x, pos.y, cam.transform.position.z) : pos + Vector3.forward * 99f;
+            var result = m_Avoidance.ResolveOverlap(ref pos, playerFlat, minCameraDistance);
+            LastOverlap = result;
+            // Update() already keeps a self-driven goose out of the bubble every frame; here it covers the driven states.
+            if (result != GooseObstacleAvoidance.OverlapResult.Clear || ExternalControl) pos = KeepOutOfCamera(pos);
+            if ((pos - before).sqrMagnitude < 1e-8f) return;
+
+            pos.y = SampleFloor(pos);
+            transform.position = pos;
+            if (result == GooseObstacleAvoidance.OverlapResult.Relocated)
+            {
+                ClearStuck();
+                Relocated?.Invoke(before, pos);
             }
         }
 

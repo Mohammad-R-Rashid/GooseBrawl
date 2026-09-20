@@ -45,6 +45,8 @@ export interface EventPayload {
   tier?: number;
   roundsThisSession?: number;
   transcript?: string;
+  /** Mid-chase reactions: the line the phone already spoke from its bank (it does not wait for the brain), so memory and the case file record what was actually said. */
+  spoken?: string;
 }
 
 /** No OpenAI key (or MOCK_AI=1): lines come from the bank, shouts are not transcribed. */

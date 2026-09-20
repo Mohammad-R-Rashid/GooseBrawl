@@ -48,11 +48,15 @@ namespace GooseBrawl
         AudioClip[] m_RealHonks = new AudioClip[0];
         AudioClip m_LongestRealHonk;
         AudioClip[] m_Footsteps, m_Flaps, m_Whooshes, m_Dashes, m_EggCracks;
-        AudioClip m_WingBeatLoop, m_CatchImpact, m_EggPickup, m_NestPlace, m_ButtonTap, m_FlockBurst;
+        AudioClip m_WingBeatLoop, m_CatchImpact, m_EggPickup, m_NestPlace, m_ButtonTap;
         readonly List<int> m_HonkBag = new List<int>();
         int m_FootstepIdx, m_FlapIdx, m_WhooshIdx, m_DashIdx;
         AnimationCurve m_Rolloff;
         AudioReverbZone m_Reverb;
+        Coroutine m_GameOverHonks;
+        bool m_Suspended;
+        readonly HashSet<AudioSource> m_SpeakingSources = new HashSet<AudioSource>();
+        readonly Dictionary<AudioSource, Coroutine> m_HonkBursts = new Dictionary<AudioSource, Coroutine>();
 
         void Awake()
         {
@@ -113,7 +117,6 @@ namespace GooseBrawl
                     foreach (var c in clips) if (m_LongestRealHonk == null || c.length > m_LongestRealHonk.length) m_LongestRealHonk = c;
                     GooseLog.Info("Loaded " + clips.Length + " real goose honk recordings.");
                 }
-                m_FlockBurst = Resources.Load<AudioClip>("GooseAudio/geese_honking_distant");
             }
             catch (System.Exception e)
             {
@@ -211,6 +214,7 @@ namespace GooseBrawl
         /// <summary>Title screen: a single goose somewhere far away, muffled.</summary>
         public void PlayStart()
         {
+            StopGameOverHonks();
             var clip = UsingRealHonks ? PickRealHonk() : honkClip;
             if (clip == null) return;
             m_Distant.pitch = Random.Range(0.86f, 0.95f);
@@ -249,7 +253,15 @@ namespace GooseBrawl
         /// <summary>Game over: four real honks, each lower than the last. Made of goose, not of music.</summary>
         public void PlayGameOver()
         {
-            StartCoroutine(GameOverHonks());
+            StopGameOverHonks();
+            m_GameOverHonks = StartCoroutine(GameOverHonks());
+        }
+
+        void StopGameOverHonks()
+        {
+            if (m_GameOverHonks == null) return;
+            StopCoroutine(m_GameOverHonks);
+            m_GameOverHonks = null;
         }
 
         IEnumerator GameOverHonks()
@@ -263,14 +275,17 @@ namespace GooseBrawl
                 m_Voice2D.PlayOneShot(clip, (i == pitches.Length - 1 ? 0.9f : 0.7f) * masterVolume);
                 yield return new WaitForSecondsRealtime(i == pitches.Length - 2 ? 0.55f : 0.42f);
             }
+            m_GameOverHonks = null;
         }
 
-        /// <summary>New best time: the distant flock gets excited.</summary>
+        /// <summary>New best time: one short goose call, without an unrelated field recording.</summary>
         public void PlayNewBest()
         {
-            if (m_FlockBurst == null) return;
+            if (m_Suspended || m_SpeakingSources.Count > 0) return;
+            var clip = UsingRealHonks ? PickRealHonk() : honkClip;
+            if (clip == null) return;
             m_Distant.pitch = 1.05f;
-            m_Distant.PlayOneShot(m_FlockBurst, 0.7f * masterVolume);
+            m_Distant.PlayOneShot(clip, 0.7f * masterVolume);
         }
 
         public void PlayHeartbeat(float volume, float pitch)
@@ -298,6 +313,7 @@ namespace GooseBrawl
         /// <summary>Honk through a goose source. Real recordings when available; danger nudges pitch and volume.</summary>
 #if UNITY_IOS && !UNITY_EDITOR
         [System.Runtime.InteropServices.DllImport("__Internal")] static extern int GooseAudio_ApplyPlayback();
+        [System.Runtime.InteropServices.DllImport("__Internal")] static extern int GooseAudio_Release();
 #endif
         float m_NextSessionCheck;
         public int PlaybackSessionApplied { get; private set; }
@@ -337,12 +353,53 @@ namespace GooseBrawl
 
         void OnApplicationPause(bool paused)
         {
-            if (!paused) EnsurePlaybackSession("resume");
+            if (paused) Suspend("pause");
+            else Resume("resume");
         }
 
         void OnApplicationFocus(bool focus)
         {
-            if (focus) EnsurePlaybackSession("focus");
+            if (focus) Resume("focus");
+            else Suspend("focus_lost");
+        }
+
+        /// <summary>
+        /// Leaving the app (home, app switcher, a system sheet): nothing of the game may keep sounding. Unity pauses the
+        /// player loop but not the mixer, so a line, a honk burst or the game-over honks would run on for a few seconds; the
+        /// Playback session we hold would also keep other apps' audio silenced. Everything stops, the listener pauses and the
+        /// audio hardware is handed back.
+        /// </summary>
+        void Suspend(string reason)
+        {
+            if (m_Suspended || Application.isEditor) return; // the Editor loses window focus all the time; only a player leaves the app
+            m_Suspended = true;
+            foreach (var burst in m_HonkBursts.Values) if (burst != null) StopCoroutine(burst);
+            m_HonkBursts.Clear();
+            var goose = GooseGameManager.Instance != null ? GooseGameManager.Instance.Goose : null;
+            if (goose != null)
+            {
+                if (goose.Voice != null) goose.Voice.Interrupt();
+                if (goose.voiceSource != null) goose.voiceSource.Stop();
+                if (goose.bodySource != null) goose.bodySource.Stop();
+            }
+            StopGameOverHonks();
+            if (m_UI != null) m_UI.Stop();
+            if (m_Voice2D != null) m_Voice2D.Stop();
+            if (m_Distant != null) m_Distant.Stop();
+            foreach (var s in m_WorldPool) if (s != null) s.Stop();
+            AudioListener.pause = true;
+#if UNITY_IOS && !UNITY_EDITOR
+            try { GooseAudio_Release(); } catch (System.Exception e) { GooseLog.Warn("Audio session release: " + e.Message); }
+#endif
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "audio.suspended", ("reason", reason));
+        }
+
+        void Resume(string reason)
+        {
+            if (!m_Suspended) return;
+            m_Suspended = false;
+            AudioListener.pause = false;
+            EnsurePlaybackSession(reason);
         }
 
         [Header("Goose voice character (spoken lines only; tune in play mode)")]
@@ -363,8 +420,29 @@ namespace GooseBrawl
         public float LastHonkTime { get; private set; } = -99f;
         public float LastHonkLength { get; private set; }
 
+        public void SetSpeechActive(AudioSource honkSource, bool active)
+        {
+            if (honkSource == null) return;
+            if (!active) { m_SpeakingSources.Remove(honkSource); return; }
+            m_SpeakingSources.Add(honkSource);
+            StopGameOverHonks();
+            if (m_Voice2D != null) m_Voice2D.Stop();
+            if (m_Distant != null) m_Distant.Stop();
+            CancelHonkBurst(honkSource);
+            honkSource.Stop();
+        }
+
+        void CancelHonkBurst(AudioSource source)
+        {
+            if (!m_HonkBursts.TryGetValue(source, out var burst)) return;
+            if (burst != null) StopCoroutine(burst);
+            m_HonkBursts.Remove(source);
+        }
+
         public void PlayGooseHonk(HonkKind kind, AudioSource source, float danger, float pitchOffset = 0f)
         {
+            if (m_Suspended || (source != null && m_SpeakingSources.Contains(source))) return;
+            if (source != null) CancelHonkBurst(source);
             LastHonkTime = Time.time;
             LastHonkLength = HonkLength(kind);
             if (source == null)
@@ -379,10 +457,10 @@ namespace GooseBrawl
                 switch (kind)
                 {
                     case HonkKind.Angry:
-                        StartCoroutine(HonkBurst(source, 2, pitch + 0.04f, volume));
+                        m_HonkBursts[source] = StartCoroutine(HonkBurst(source, 2, pitch + 0.04f, volume));
                         return;
                     case HonkKind.Rage:
-                        StartCoroutine(HonkBurst(source, 3, pitch + 0.08f, volume));
+                        m_HonkBursts[source] = StartCoroutine(HonkBurst(source, 3, pitch + 0.08f, volume));
                         return;
                     case HonkKind.Dramatic:
                         source.pitch = 0.72f * SlowMoPitch;
@@ -412,13 +490,14 @@ namespace GooseBrawl
         {
             for (int i = 0; i < count; i++)
             {
-                if (source == null) yield break;
+                if (source == null || m_Suspended || m_SpeakingSources.Contains(source)) break;
                 var clip = PickRealHonk();
                 if (clip == null) yield break;
                 source.pitch = pitch + i * 0.05f;
                 source.PlayOneShot(clip, volume * masterVolume);
-                yield return new WaitForSeconds(Mathf.Min(clip.length * 0.85f, 0.45f) * Random.Range(0.85f, 1.15f));
+                yield return new WaitForSecondsRealtime(Mathf.Min(clip.length / Mathf.Max(0.1f, source.pitch) * 0.85f, 0.45f) * Random.Range(0.85f, 1.15f));
             }
+            if (source != null) m_HonkBursts.Remove(source);
         }
 
         /// <summary>Shuffle bag: every honk plays once before any repeats.</summary>

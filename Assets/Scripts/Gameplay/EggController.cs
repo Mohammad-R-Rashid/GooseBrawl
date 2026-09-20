@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -21,7 +22,8 @@ namespace GooseBrawl
         Vector3 m_LocalPos;
         Vector3 m_BaseScale;
         float m_Seed;
-        Material m_Shell;
+        Material m_Shell, m_InnerShell, m_White, m_Yolk;
+        readonly List<Mesh> m_CrackMeshes = new List<Mesh>(17);
 
         public static EggController Create(MaterialLibrary mats, Transform parent)
         {
@@ -54,6 +56,7 @@ namespace GooseBrawl
             var egg = go.AddComponent<EggController>();
             egg.m_Collider = col;
             egg.m_Shell = shell;
+            egg.PrepareCrackMaterials(mats);
             egg.m_Nest = parent;
             egg.m_LocalPos = go.transform.localPosition;
             egg.m_BaseScale = go.transform.localScale;
@@ -72,7 +75,7 @@ namespace GooseBrawl
             {
                 var cam = Camera.main;
                 if (cam == null) return;
-                if (Physics.Raycast(cam.ScreenPointToRay(screenPos), out var hit, tapMaxDistance, ~0, QueryTriggerInteraction.Collide) && hit.collider == m_Collider)
+                if (Physics.Raycast(cam.ScreenPointToRay(screenPos), out var hit, tapMaxDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide) && hit.collider == m_Collider)
                 {
                     var mgr = GooseGameManager.Instance;
                     if (mgr != null) mgr.OnEggTapped();
@@ -144,16 +147,14 @@ namespace GooseBrawl
 
         void SpawnCrackedEgg(Vector3 pos, Vector3 fwd, MaterialLibrary mats)
         {
-            if (CrackedEgg != null) Destroy(CrackedEgg);
+            ClearCrackedEgg();
             CrackedEgg = new GameObject("CrackedEgg");
             CrackedEgg.transform.position = pos;
             CrackedEgg.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(0f, Random.Range(-40f, 40f), 0f);
 
-            var white = TransparentLit(mats.Egg, "EggWhite", new Color(0.97f, 0.96f, 0.9f, 0.86f), 0.92f);
-            var yolk = new Material(mats.Egg) { name = "EggYolk" };
-            yolk.SetColor("_BaseColor", new Color(1f, 0.70f, 0.08f, 1f));
-            yolk.SetFloat("_Smoothness", 0.9f);
-            yolk.DisableKeyword("_EMISSION");
+            PrepareCrackMaterials(mats);
+            var white = m_White;
+            var yolk = m_Yolk;
             var shell = m_Shell != null ? m_Shell : mats.Egg;
 
             // Egg white: a flat organic puddle that spreads out.
@@ -163,6 +164,7 @@ namespace GooseBrawl
             whiteGo.transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
             var wmf = whiteGo.AddComponent<MeshFilter>();
             wmf.sharedMesh = ProceduralAssets.DiscMesh("EggWhite", 0.15f, 0.28f, Random.Range(1, 9999));
+            m_CrackMeshes.Add(wmf.sharedMesh);
             var wmr = whiteGo.AddComponent<MeshRenderer>();
             wmr.sharedMaterial = white;
             wmr.shadowCastingMode = ShadowCastingMode.Off;
@@ -195,8 +197,8 @@ namespace GooseBrawl
             var outer = ProceduralAssets.EggShellPieceMesh(name, EggWidth, EggHeight, vFrom, vTo, angleFrom, angleTo, jagged, seed);
             mf.sharedMesh = outer;
             var mr = go.AddComponent<MeshRenderer>();
-            var m = new Material(mat) { name = mat.name + "_Shell" };
-            mr.sharedMaterial = m;
+            m_CrackMeshes.Add(outer);
+            mr.sharedMaterial = mat;
             mr.shadowCastingMode = ShadowCastingMode.On;
             mr.receiveShadows = true;
             // Inside of the shell: the same surface with flipped normals so it is lit correctly (URP Lit does not flip back-face normals).
@@ -204,11 +206,9 @@ namespace GooseBrawl
             inner.transform.SetParent(go.transform, false);
             var imf = inner.AddComponent<MeshFilter>();
             imf.sharedMesh = FlippedCopy(outer);
+            m_CrackMeshes.Add(imf.sharedMesh);
             var imr = inner.AddComponent<MeshRenderer>();
-            var innerMat = new Material(m) { name = m.name + "_Inner" };
-            innerMat.SetColor("_BaseColor", new Color(0.93f, 0.92f, 0.88f, 1f));
-            innerMat.SetFloat("_Smoothness", 0.35f);
-            imr.sharedMaterial = innerMat;
+            imr.sharedMaterial = m_InnerShell;
             imr.shadowCastingMode = ShadowCastingMode.Off;
             imr.receiveShadows = true;
             // Shell pieces rest on the floor: raise by the mesh's lowest point so nothing pokes through.
@@ -283,6 +283,30 @@ namespace GooseBrawl
         {
             if (CrackedEgg != null) Destroy(CrackedEgg);
             CrackedEgg = null;
+            foreach (var mesh in m_CrackMeshes) if (mesh != null) Destroy(mesh);
+            m_CrackMeshes.Clear();
+        }
+
+        void PrepareCrackMaterials(MaterialLibrary mats)
+        {
+            if (m_White != null) return;
+            m_White = TransparentLit(mats.Egg, "EggWhite", new Color(0.97f, 0.96f, 0.9f, 0.86f), 0.92f);
+            m_Yolk = new Material(mats.Egg) { name = "EggYolk" };
+            m_Yolk.SetColor("_BaseColor", new Color(1f, 0.70f, 0.08f, 1f));
+            m_Yolk.SetFloat("_Smoothness", 0.9f);
+            m_Yolk.DisableKeyword("_EMISSION");
+            m_InnerShell = new Material(m_Shell != null ? m_Shell : mats.Egg) { name = "EggShell_Inner" };
+            m_InnerShell.SetColor("_BaseColor", new Color(0.93f, 0.92f, 0.88f, 1f));
+            m_InnerShell.SetFloat("_Smoothness", 0.35f);
+        }
+
+        void OnDestroy()
+        {
+            ClearCrackedEgg();
+            if (m_Shell != null) Destroy(m_Shell);
+            if (m_InnerShell != null) Destroy(m_InnerShell);
+            if (m_White != null) Destroy(m_White);
+            if (m_Yolk != null) Destroy(m_Yolk);
         }
 
         /// <summary>Held position in camera space: low right, like an egg in your hand in front of the phone.</summary>

@@ -22,8 +22,7 @@ namespace GooseBrawl.Editor
                 "palmRadius", "palmSpring", "palmDamping", "accelerationGain", "accelerationDeadZone", "tiltGain", "tiltDeadZoneRoll", "tiltDeadZonePitch",
                 "carryGraceSeconds", "repeatCarryDifficulty", "stillCreepAfter", "outlastSeconds", "dodgeDistance", "breadPerRound"
             }),
-            (typeof(ARBootstrapper), new[] { "enableVerticalPlanes", "enableEnvironmentMeshing", "meshDensity", "enableOcclusion", "enableEnvironmentProbes" }),
-            (typeof(AREnvironmentMeshController), new[] { "showPlaneDots", "visualizePlanes" }),
+            (typeof(ARBootstrapper), new[] { "enableVerticalPlanes", "enableEnvironmentMeshing", "meshDensity", "meshQueueSize", "enableOcclusion", "enableEnvironmentProbes", "selfiePhotoMode", "selfieHumanOcclusion" }),
             (typeof(AudioManager), new[] { "voicePitch", "voiceHighPassHz", "voiceDistortion", "voiceLowPassHz", "voiceWarbleDepth", "voiceWarbleRateHz", "voiceWarbleMix" }),
             (typeof(PerfProbe), new[] { "adaptive", "adaptiveP95Ms", "adaptiveWindowSeconds", "adaptiveMinIntervalSeconds", "maxQualityTier", "spikeThresholdMsDevice" }),
             (typeof(PerfBenchmark), new[] { "secondsPerConfig", "secondsPerConfigEditor", "autoStartEnvVar" }),
@@ -33,9 +32,11 @@ namespace GooseBrawl.Editor
         {
             (typeof(GooseChaseController), new[]
             {
-                "walkSpeed", "runSpeed", "maxChaseSpeed", "timeToMaxSpeed", "walkPhaseDuration", "nearCapSpeed", "tierStartTimes", "dashCooldownByTier"
+                "walkSpeed", "runSpeed", "maxChaseSpeed", "timeToMaxSpeed", "walkPhaseDuration", "nearCapSpeed", "tierStartTimes", "dashCooldownByTier",
+                "selfieDistance", "selfieSide", "selfieDrop"
             }),
-            (typeof(GooseMovement), new[] { "acceleration", "deceleration" }),
+            (typeof(GooseMovement), new[] { "acceleration", "deceleration", "minCameraDistance", "overlapCheckRate", "floorSnapTolerance" }),
+            (typeof(GooseObstacleAvoidance), new[] { "bodyRadius", "bodyHeight", "bodyBottom", "maxPushPerPass", "floorNoiseTolerance", "emergencyStopDistance" }),
         };
 
         [MenuItem("Goose Brawl/Sync Tunables To Code Defaults")]

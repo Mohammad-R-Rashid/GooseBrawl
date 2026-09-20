@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Animations;
@@ -84,6 +85,29 @@ namespace GooseBrawl
             Procedural.AllowProceduralWings = !m_UsePlayables || resolver.Get(GooseAnimationResolver.Slot.Flap) == null;
 
             if (blobShadow != null) m_ShadowBaseScale = blobShadow.localScale;
+            StartCoroutine(PrepareEffects());
+        }
+
+        public bool EffectsReady => m_Dust != null && m_FootDust != null && m_Crumbs != null && m_Feathers != null && m_FeatherTrail != null;
+
+        IEnumerator PrepareEffects()
+        {
+            // Allocate during the entrance, spread across frames. Do not emit anything while warming.
+            yield return null;
+            var mats = MaterialLibrary.Instance;
+            if (m_Dust == null) m_Dust = ProceduralAssets.CreateDustPuff(transform, mats != null ? mats.Dust : null, 12);
+            yield return null;
+            if (m_FootDust == null) m_FootDust = ProceduralAssets.CreateFootDust(transform, mats != null ? mats.Dust : null);
+            yield return null;
+            if (m_Crumbs == null) m_Crumbs = ProceduralAssets.CreateCrumbPuff(transform, mats != null ? mats.Crumbs : null);
+            yield return null;
+            if (m_Feathers == null) m_Feathers = ProceduralAssets.CreateFeatherBurst(transform);
+            yield return null;
+            if (m_FeatherTrail == null)
+            {
+                m_FeatherTrail = ProceduralAssets.CreateFeatherTrail(transform);
+                m_FeatherTrail.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
         }
 
         /// <summary>Swap the goose material (e.g. the grey variant) on every renderer without instantiating copies.</summary>

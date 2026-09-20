@@ -22,6 +22,10 @@ namespace GooseBrawl
         [Tooltip("Editor smoke runs force the offline path so they are deterministic.")]
         public bool forceOffline;
         public float requestTimeoutSeconds = 6f;
+        [Tooltip("The session call is fire-and-forget during the steal beat, so it may take longer: the intro gets written and voiced in that time.")]
+        public float sessionTimeoutSeconds = 9f;
+        [Tooltip("Off (the shipped setting): the goose's voice is the local bank only, no audio is ever fetched or generated live; the brain still names the goose, keeps the memory and hears the shouts. On: brain lines arrive voiced (R2 cache / live ElevenLabs).")]
+        public bool fetchVoiceAudio = false;
         public float retryOfflineAfterSeconds = 20f;
 
         [Serializable] public class LineDto { public string text; public string mood; public string source; public string audioUrl; public string transcript; public int ms; }
@@ -109,12 +113,12 @@ namespace GooseBrawl
         public IEnumerator StartSession(int roundsThisSession, int gamesPlayed, float bestTime, Action<SessionResult> done)
         {
             if (!Available) { done?.Invoke(null); yield break; }
-            string body = "{\"roundsThisSession\":" + roundsThisSession + ",\"gamesPlayed\":" + gamesPlayed + ",\"bestTime\":" + bestTime.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "}";
+            string body = "{\"roundsThisSession\":" + roundsThisSession + ",\"gamesPlayed\":" + gamesPlayed + ",\"bestTime\":" + bestTime.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + ",\"voice\":" + (fetchVoiceAudio ? "true" : "false") + "}";
             SessionDto dto = null;
-            yield return Post(AgentUrl("/session"), "brain.session", null, body, null, json => dto = JsonUtility.FromJson<SessionDto>(json));
+            yield return Post(AgentUrl("/session"), "brain.session", null, body, null, json => dto = JsonUtility.FromJson<SessionDto>(json), sessionTimeoutSeconds);
             if (dto == null || string.IsNullOrEmpty(dto.name)) { done?.Invoke(null); yield break; }
             var result = new SessionResult { Name = dto.name, Title = dto.title, Grudge = dto.grudge, Rounds = dto.rounds, Returning = dto.returning, Female = dto.voice == "female", Intro = ToLine(dto.intro) };
-            if (result.Intro != null && !string.IsNullOrEmpty(result.Intro.AudioUrl))
+            if (fetchVoiceAudio && result.Intro != null && !string.IsNullOrEmpty(result.Intro.AudioUrl))
                 yield return FetchClip(result.Intro.AudioUrl, clip => result.Intro.Clip = clip);
             GooseTelemetry.Log(GooseTelemetry.Level.Info, "brain.session", ("name", dto.name), ("grudge", dto.grudge), ("returning", dto.returning), ("intro_audio", result.Intro != null && result.Intro.Clip != null), ("ms", dto.ms));
             done?.Invoke(result);
@@ -130,7 +134,7 @@ namespace GooseBrawl
             yield return Post(AgentUrl("/event"), "brain.event." + kind, kind, json, wav, s => dto = JsonUtility.FromJson<LineDto>(s));
             if (dto == null || string.IsNullOrEmpty(dto.text)) { done?.Invoke(null); yield break; }
             var line = ToLine(dto);
-            if (!string.IsNullOrEmpty(line.AudioUrl)) yield return FetchClip(line.AudioUrl, clip => line.Clip = clip);
+            if (fetchVoiceAudio && !string.IsNullOrEmpty(line.AudioUrl)) yield return FetchClip(line.AudioUrl, clip => line.Clip = clip);
             if (line.FromBrain) LinesFromBrain++;
             GooseTelemetry.Log(GooseTelemetry.Level.Info, "brain.line", ("beat", kind), ("source", dto.source), ("audio", line.Clip != null), ("transcript", dto.transcript ?? ""), ("ms", dto.ms));
             done?.Invoke(line);
@@ -175,7 +179,7 @@ namespace GooseBrawl
             return new LineResult { Text = d.text, Mood = d.mood, Source = d.source, AudioUrl = AbsoluteUrl(d.audioUrl), Transcript = d.transcript };
         }
 
-        IEnumerator Post(string url, string spanName, string kind, string json, byte[] wav, Action<string> onJson)
+        IEnumerator Post(string url, string spanName, string kind, string json, byte[] wav, Action<string> onJson, float timeoutSeconds = -1f)
         {
             Requests++;
             m_InFlight++;
@@ -195,7 +199,7 @@ namespace GooseBrawl
                 req = new UnityWebRequest(url, "POST") { uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json)), downloadHandler = new DownloadHandlerBuffer() };
                 req.SetRequestHeader("Content-Type", "application/json");
             }
-            req.timeout = Mathf.CeilToInt(requestTimeoutSeconds);
+            req.timeout = Mathf.CeilToInt(timeoutSeconds > 0f ? timeoutSeconds : requestTimeoutSeconds);
             GooseTelemetry.AddTraceHeaders(req);
             using (var span = GooseTelemetry.StartSpan("http.client", spanName))
             {

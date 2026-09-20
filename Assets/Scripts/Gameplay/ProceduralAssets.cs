@@ -17,6 +17,8 @@ namespace GooseBrawl
         // ------------------------------------------------------------------------------------------------
 
         static readonly Dictionary<string, Texture2D> s_TexCache = new Dictionary<string, Texture2D>();
+        static readonly Dictionary<Vector3, Mesh> s_ToastMeshes = new Dictionary<Vector3, Mesh>();
+        static readonly Dictionary<(float, float, int, int), Mesh> s_EggMeshes = new Dictionary<(float, float, int, int), Mesh>();
 
         static Texture2D Cached(string key, Func<Texture2D> make)
         {
@@ -491,6 +493,15 @@ namespace GooseBrawl
         /// rim; the side quads sample the texture at the rim and come out crust-coloured.
         /// </summary>
         public static Mesh ToastSliceMesh(string name, float width, float height, float thickness)
+        {
+            var key = new Vector3(width, height, thickness);
+            if (s_ToastMeshes.TryGetValue(key, out var cached) && cached != null) return cached;
+            var mesh = BuildToastSliceMesh(name, width, height, thickness);
+            s_ToastMeshes[key] = mesh;
+            return mesh;
+        }
+
+        static Mesh BuildToastSliceMesh(string name, float width, float height, float thickness)
         {
             var outline = ToastOutline();
             int n = outline.Count;
@@ -1172,6 +1183,8 @@ namespace GooseBrawl
         /// </summary>
         public static Mesh EggMesh(string name, float width, float height, int segments = 32, int rings = 28)
         {
+            var key = (width, height, segments, rings);
+            if (s_EggMeshes.TryGetValue(key, out var cached) && cached != null) return cached;
             float R = 0.5f * Mathf.Max(1e-4f, width);
             float EggV(float t) => 0.5f - 0.5f * Mathf.Cos(Mathf.Clamp01(t) * Mathf.PI);
             Vector3 Surf(float u, float t)
@@ -1182,7 +1195,9 @@ namespace GooseBrawl
                 return new Vector3(Mathf.Cos(ang) * r, v * height, Mathf.Sin(ang) * r);
             }
             Vector2 Uv(float u, float t) => new Vector2(u, EggV(t));
-            return BuildRevolved(name, Surf, Uv, segments, rings, true, false, false);
+            var mesh = BuildRevolved(name, Surf, Uv, segments, rings, true, false, false);
+            s_EggMeshes[key] = mesh;
+            return mesh;
         }
 
         /// <summary>Jagged edge profile in [-1,1]: smooth noise plus a zig-zag so shell edges read as broken, not wavy.</summary>

@@ -18,6 +18,11 @@ namespace GooseBrawl
         Transform m_Roll;
         int m_Layer = -1;
         float m_NextCull;
+        Camera[] m_Cameras = new Camera[4];
+        Material m_IconMaterial;
+
+        public bool Rendering => m_Cam != null && m_Cam.enabled;
+        public void SetVisible(bool visible) { if (m_Cam != null) m_Cam.enabled = visible; }
 
         public static BreadIconRenderer Create(MaterialLibrary mats)
         {
@@ -42,6 +47,7 @@ namespace GooseBrawl
             // Unlit: the toast texture carries its own crust shading, and the icon must read the same in any room
             // (the rig's point lights at 30 cm blew a lit face out to white).
             var iconMat = ProceduralAssets.UnlitTransparent("BreadIcon_Runtime", Color.white, ProceduralAssets.ToastTexture());
+            r.m_IconMaterial = iconMat;
             iconMat.SetTextureScale("_BaseMap", Vector2.one);
             iconMat.SetTextureScale("_MainTex", Vector2.one);
             mr.sharedMaterial = iconMat;
@@ -51,29 +57,6 @@ namespace GooseBrawl
             roll.transform.localPosition = new Vector3(0f, 0.022f, 0f);
             roll.transform.localRotation = Quaternion.Euler(-10f, 200f, 0f);
             r.m_Roll = roll.transform;
-
-            // A small warm light of its own so the icon reads the same in a dark room.
-            var lightGo = new GameObject("Light");
-            lightGo.transform.SetParent(go.transform, false);
-            lightGo.transform.localPosition = new Vector3(0.12f, 0.25f, -0.15f);
-            var light = lightGo.AddComponent<Light>();
-            light.type = LightType.Point;
-            light.color = new Color(1f, 0.93f, 0.8f);
-            light.intensity = 2.4f;
-            light.range = 1.5f;
-            light.cullingMask = 1 << layer;
-            light.shadows = LightShadows.None;
-
-            var fillGo = new GameObject("Fill");
-            fillGo.transform.SetParent(go.transform, false);
-            fillGo.transform.localPosition = new Vector3(-0.2f, 0.12f, -0.22f);
-            var fill = fillGo.AddComponent<Light>();
-            fill.type = LightType.Point;
-            fill.color = new Color(0.95f, 0.97f, 1f);
-            fill.intensity = 1.2f;
-            fill.range = 1.2f;
-            fill.cullingMask = 1 << layer;
-            fill.shadows = LightShadows.None;
 
             var camGo = new GameObject("BreadIconCamera");
             camGo.transform.SetParent(go.transform, false);
@@ -90,6 +73,7 @@ namespace GooseBrawl
             r.m_Cam.allowHDR = false;
             r.m_Cam.allowMSAA = false;
             r.m_Cam.targetTexture = r.Texture;
+            r.m_Cam.enabled = false;
             var data = r.m_Cam.GetUniversalAdditionalCameraData();
             if (data != null)
             {
@@ -109,18 +93,32 @@ namespace GooseBrawl
             if (Time.unscaledTime >= m_NextCull) { m_NextCull = Time.unscaledTime + 2f; CullFromOtherCameras(); }
         }
 
+        void LateUpdate()
+        {
+            // Visibility is final after the HUD's Update. Enable the camera before this frame renders.
+            var mgr = GooseGameManager.Instance;
+            SetVisible(mgr != null && mgr.UI != null && mgr.UI.BreadVisible);
+        }
+
         /// <summary>No other camera may draw the icon roll (the AR camera and the mock camera cull the UIBread layer).</summary>
         void CullFromOtherCameras()
         {
             if (m_Layer < 0) return;
             int bit = 1 << m_Layer;
-            foreach (var cam in Camera.allCameras)
+            int needed = Camera.allCamerasCount;
+            if (m_Cameras.Length < needed) m_Cameras = new Camera[Mathf.NextPowerOfTwo(needed)];
+            int count = Camera.GetAllCameras(m_Cameras);
+            for (int i = 0; i < count; i++)
+            {
+                var cam = m_Cameras[i];
                 if (cam != m_Cam && (cam.cullingMask & bit) != 0) cam.cullingMask &= ~bit;
+            }
         }
 
         void OnDestroy()
         {
             if (Texture != null) { Texture.Release(); Destroy(Texture); }
+            if (m_IconMaterial != null) Destroy(m_IconMaterial);
         }
     }
 }

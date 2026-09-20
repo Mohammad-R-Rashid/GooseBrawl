@@ -20,8 +20,8 @@ goose in GOOSED.:
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/health` | | `{ ok, version, mock, voice }` |
-| POST | `/agents/goose-brain/<deviceId>/session` | `{ roundsThisSession, gamesPlayed, bestTime }` | `{ name, title, grudge, rounds, returning, intro: { text, audioUrl, mood } }` |
-| POST | `/agents/goose-brain/<deviceId>/event` | `{ kind, payload }` or multipart `json` + `audio` (WAV) for `yell` | `{ text, audioUrl, mood, source, transcript }` |
+| POST | `/agents/goose-brain/<deviceId>/session` | `{ roundsThisSession, gamesPlayed, bestTime, voice }` (`voice: false` = the phone plays its local bank, the intro is written but not voiced) | `{ name, title, grudge, rounds, returning, intro: { text, audioUrl, mood } }` |
+| POST | `/agents/goose-brain/<deviceId>/event` | `{ kind, payload }` or multipart `json` + `audio` (WAV) for `yell`; `payload.spoken` = the bank line the phone already said (mid-chase reactions do not wait), recorded as the line, nothing written or voiced | `{ text, audioUrl, mood, source, transcript }` |
 | GET | `/agents/goose-brain/<deviceId>/memory` | | the memory + last 20 events |
 | POST | `/agents/goose-brain/<deviceId>/reset` | | wipes the memory |
 | GET | `/audio/<sha256>` | | cached WAV |
