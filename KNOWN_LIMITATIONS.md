@@ -11,6 +11,8 @@
 - **Sentry is enabled** (Unity + Worker, one project). The Uptime monitor on `/health` must be created in the Sentry UI. The
   ElevenLabs key was shared in a chat transcript: rotate it after the event. Sentry Profiling and Session Replay do not exist for Unity; the frame-level data
   comes from `PerfProbe` through Tracing and Logs. Adaptive quality only steps down, and only on the device.
+- **The bread button** renders the roll through an extra camera on the `UIBread` layer (added by Setup / the `layers` remote command);
+  without that layer it falls back to a flat warm disc.
 - **Bread never uses physics**: it lands on the far side of the goose on free floor (falls back to beside it); on a cluttered
   scan it may land inside something the goose then walks around. The goose ignores catches while it eats (by design).
 - **Release builds only**: development builds show Unity's console overlay on errors and cost frame time; `Goose Brawl > Build iOS

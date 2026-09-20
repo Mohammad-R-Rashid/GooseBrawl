@@ -16,6 +16,7 @@ namespace GooseBrawl.Editor
         public const string SmokeFlag = "GooseBrawl.SmokeTest";
         public const string BenchFlag = "GooseBrawl.Bench";
         public const string SmokeOnlineFlag = "GooseBrawl.SmokeOnline";
+        public const string IconFlag = "GooseBrawl.IconShot";
         static double s_NextPoll;
 
         static GooseBrawlRemote()
@@ -41,7 +42,7 @@ namespace GooseBrawl.Editor
             }
             if (string.IsNullOrEmpty(cmd)) return;
             // Commands that need edit mode: leave play mode first and re-queue.
-            if ((cmd == "play" || cmd == "smoke" || cmd == "smokeonline" || cmd == "bench" || cmd == "setup" || cmd == "build") && EditorApplication.isPlaying)
+            if ((cmd == "play" || cmd == "smoke" || cmd == "smokeonline" || cmd == "bench" || cmd == "icon" || cmd == "setup" || cmd == "build") && EditorApplication.isPlaying)
             {
                 EditorApplication.ExitPlaymode();
                 File.WriteAllText(CommandPath, cmd);
@@ -71,6 +72,13 @@ namespace GooseBrawl.Editor
                     UsePhoneResolution();
                     EditorApplication.EnterPlaymode();
                     break;
+                case "icon":
+                    SessionState.SetBool(SmokeFlag, false);
+                    SessionState.SetBool(IconFlag, true);
+                    GooseBrawlSetup.OpenScene();
+                    try { PlayModeWindow.SetViewType(PlayModeWindow.PlayModeViewTypes.GameView); PlayModeWindow.SetCustomRenderingResolution(1024, 1024, "Icon 1024"); } catch (System.Exception e) { Debug.LogWarning(e.Message); }
+                    EditorApplication.EnterPlaymode();
+                    break;
                 case "bench":
                     SessionState.SetBool(SmokeFlag, false);
                     SessionState.SetBool(BenchFlag, true);
@@ -95,6 +103,10 @@ namespace GooseBrawl.Editor
                     break;
                 case "sentry":
                     GooseBrawlSetup.ConfigureSentry();
+                    break;
+                case "layers":
+                    GooseBrawlSetup.EnsureLayers();
+                    AssetDatabase.SaveAssets();
                     break;
                 case "pipeline":
                     GooseBrawlSetup.ConfigureRenderPipeline();
@@ -135,6 +147,12 @@ namespace GooseBrawl.Editor
                 SessionState.SetBool(SmokeFlag, false);
                 var go = new GameObject("GooseSmokeTest");
                 go.AddComponent<GooseSmokeTest>();
+            }
+            if (state == PlayModeStateChange.EnteredPlayMode && SessionState.GetBool(IconFlag, false))
+            {
+                SessionState.SetBool(IconFlag, false);
+                var go = new GameObject("GooseIconShot");
+                go.AddComponent<GooseIconShot>();
             }
             if (state == PlayModeStateChange.EnteredPlayMode && SessionState.GetBool(BenchFlag, false))
             {

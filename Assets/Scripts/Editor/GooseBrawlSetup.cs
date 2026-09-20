@@ -207,6 +207,7 @@ namespace GooseBrawl.Editor
             var layers = tagManager.FindProperty("layers");
             AddLayer(layers, AREnvironmentMeshController.EnvironmentLayerName);
             AddLayer(layers, "Interactable");
+            AddLayer(layers, BreadIconRenderer.LayerName);
             tagManager.ApplyModifiedProperties();
         }
 

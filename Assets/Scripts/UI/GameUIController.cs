@@ -32,8 +32,13 @@ namespace GooseBrawl
         UILabel m_StartBest, m_Message, m_MockHint, m_Tracking;
         UILabel m_Time, m_Honks, m_Best, m_DangerLabel, m_TurnAround;
         UILabel m_GoTitle, m_GoTime, m_GoScore, m_GoBest, m_GoGrudge;
-        UILabel m_Subtitle, m_BreadLabel;
+        UILabel m_Subtitle;
         RectTransform m_SubtitlePill, m_BreadButton;
+        Image m_BreadRing, m_BreadFace;
+        RawImage m_BreadRoll;
+        Image m_BreadFlat;
+        float m_BreadDanger;
+        static Sprite s_Ring;
         float m_SubtitleUntil;
         UILabel m_SoundToggle, m_HapticsToggle;
         RectTransform m_TrackingPill;
@@ -96,12 +101,12 @@ namespace GooseBrawl
 
             // Centre message ("OH NO.")
             m_Message = UIFactory.CreateLabel(m_Safe, "Message", "", 112f, UITheme.White, true, TextAnchor.MiddleCenter, UITheme.Brown, 0.26f, UIFont.Display, autoSize: true);
-            UIFactory.Place(m_Message.Rect, new Vector2(0.5f, 0.5f), new Vector2(0f, 140f), new Vector2(980f, 320f));
+            UIFactory.Place(m_Message.Rect, new Vector2(0.5f, 0.5f), new Vector2(0f, 130f), new Vector2(940f, 270f));
             m_Message.SetActive(false);
 
             // Subtitle pill: what the goose just said, for the audience (lives across screens, like the message).
-            var subtitlePill = UIFactory.CreateGlassPill(m_Safe, "SubtitlePill", new Vector2(620f, 92f), strong: true);
-            UIFactory.Place(subtitlePill.rectTransform, new Vector2(0.5f, 0f), new Vector2(60f, 196f), new Vector2(620f, 92f));
+            var subtitlePill = UIFactory.CreateGlassPill(m_Safe, "SubtitlePill", new Vector2(560f, 92f), strong: true);
+            UIFactory.Place(subtitlePill.rectTransform, new Vector2(0.5f, 0f), new Vector2(-70f, 196f), new Vector2(560f, 92f));
             m_Subtitle = UIFactory.CreateLabel(subtitlePill.transform, "Text", "", 32f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud, autoSize: true);
             UIFactory.Stretch(m_Subtitle.Rect, 12f);
             m_SubtitlePill = subtitlePill.rectTransform;
@@ -109,7 +114,7 @@ namespace GooseBrawl
 
             // Tracking hint pill
             var trackingPill = UIFactory.CreateGlassPill(m_Safe, "TrackingPill", new Vector2(760f, 88f));
-            UIFactory.Place(trackingPill.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 300f), new Vector2(760f, 88f));
+            UIFactory.Place(trackingPill.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 560f), new Vector2(760f, 88f));
             m_Tracking = UIFactory.CreateLabel(trackingPill.transform, "Text", "", 34f, UITheme.Ink, false, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Stretch(m_Tracking.Rect, 10f);
             m_TrackingPill = trackingPill.rectTransform;
@@ -195,8 +200,8 @@ namespace GooseBrawl
             m_StartBest = UIFactory.CreateLabel(bestPill.transform, "Best", "", 32f, UITheme.Brown, false);
             UIFactory.Stretch(m_StartBest.Rect, 8f);
 
-            BottomButton(m_Start, "StartButton", "START", () => GooseGameManager.Instance.OnStartPressed(), 240f);
-            SmallGlassButton(m_Start, "HowToPlay", "HOW TO PLAY", new Vector2(0.5f, 0f), new Vector2(0f, 120f), new Vector2(420f, 84f),
+            BottomButton(m_Start, "StartButton", "START", () => GooseGameManager.Instance.OnStartPressed(), 260f);
+            SmallGlassButton(m_Start, "HowToPlay", "HOW TO PLAY", new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(420f, 84f),
                 () => GooseGameManager.Instance.OnHowToPlayPressed(), out _);
 
             // Settings toggles, top right.
@@ -253,10 +258,32 @@ namespace GooseBrawl
             m_Best = UIFactory.CreateLabel(bestPill.transform, "Best", "BEST 0:00.0", 30f, UITheme.InkMuted, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Stretch(m_Best.Rect, 8f);
 
-            // BREAD: one throw per recharge, bottom-left, out of the subtitle's way.
-            m_BreadButton = SmallGlassButton(m_HUD, "Bread", "BREAD", new Vector2(0f, 0f), new Vector2(24f, 190f), new Vector2(200f, 96f),
-                () => GooseGameManager.Instance.OnBreadPressed(), out m_BreadLabel);
-            m_BreadLabel.FontSize = 34f;
+            // BREAD: one throw per round. A round glass button with the real roll inside, bottom-right above the meter.
+            // Quiet while the goose is far; it grows and its ring pulses as the goose closes in (a "save me", not a nag).
+            m_BreadButton = UIFactory.CreateRect(m_HUD, "Bread");
+            UIFactory.Place(m_BreadButton, new Vector2(1f, 0f), new Vector2(-40f, 180f), new Vector2(150f, 150f));
+            m_BreadButton.pivot = new Vector2(0.5f, 0.5f);
+            m_BreadButton.anchoredPosition = new Vector2(-115f, 255f);
+            m_BreadRing = UIFactory.CreateImage(m_BreadButton, "Ring", RingSprite, new Color(UITheme.Yolk.r, UITheme.Yolk.g, UITheme.Yolk.b, 0f));
+            UIFactory.Place(m_BreadRing.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(214f, 214f));
+            m_BreadFace = UIFactory.CreateImage(m_BreadButton, "Face", UIFactory.Circle, UITheme.GlassStrong, true);
+            UIFactory.Place(m_BreadFace.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(150f, 150f));
+            var breadButton = m_BreadFace.gameObject.AddComponent<Button>();
+            breadButton.targetGraphic = m_BreadFace;
+            var bc = breadButton.colors; bc.normalColor = Color.white; bc.highlightedColor = Color.white; bc.pressedColor = new Color(0.8f, 0.8f, 0.8f, 1f); bc.fadeDuration = 0.05f; breadButton.colors = bc;
+            breadButton.onClick.AddListener(() => GooseGameManager.Instance.OnBreadPressed());
+            var breadPress = m_BreadFace.gameObject.AddComponent<UIButtonPress>();
+            breadPress.target = m_BreadButton;
+            var rollGo = new GameObject("Roll", typeof(RectTransform));
+            rollGo.transform.SetParent(m_BreadFace.transform, false);
+            m_BreadRoll = rollGo.AddComponent<RawImage>();
+            m_BreadRoll.raycastTarget = false;
+            m_BreadRoll.color = Color.white;
+            UIFactory.Place(m_BreadRoll.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0f, 2f), new Vector2(124f, 124f));
+            m_BreadRoll.enabled = false;
+            // Flat fallback (a warm disc) only if the icon camera cannot be created.
+            m_BreadFlat = UIFactory.CreateImage(m_BreadFace.transform, "Flat", UIFactory.Circle, new Color(0.83f, 0.6f, 0.33f, 1f));
+            UIFactory.Place(m_BreadFlat.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(84f, 84f));
             m_BreadButton.gameObject.SetActive(false);
 
             SmallGlassButton(m_HUD, "Pause", "II", new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(96f, 96f),
@@ -281,7 +308,7 @@ namespace GooseBrawl
             m_DangerFill.rectTransform.sizeDelta = new Vector2(0f, 0f);
 
             m_TurnAround = UIFactory.CreateLabel(m_HUD, "TurnAround", "TURN AROUND!", 96f, UITheme.Danger, true, TextAnchor.MiddleCenter, UITheme.White, 0.22f, UIFont.Display, autoSize: true);
-            UIFactory.Place(m_TurnAround.Rect, new Vector2(0.5f, 0.5f), new Vector2(0f, 330f), new Vector2(980f, 140f));
+            UIFactory.Place(m_TurnAround.Rect, new Vector2(0.5f, 0.5f), new Vector2(0f, 400f), new Vector2(940f, 130f));
             m_TurnAround.SetActive(false);
         }
 
@@ -291,11 +318,11 @@ namespace GooseBrawl
             var dim = UIFactory.CreateImage(m_GameOver, "Dim", null, UITheme.Dim);
             UIFactory.Stretch(dim.rectTransform);
 
-            m_GoTitle = UIFactory.CreateLabel(m_GameOver, "Title", "THE GOOSE\nGOT YOU", 118f, UITheme.Yolk, true, TextAnchor.MiddleCenter, UITheme.Brown, 0.28f, UIFont.Display, autoSize: true);
-            UIFactory.Place(m_GoTitle.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -230f), new Vector2(980f, 340f));
+            m_GoTitle = UIFactory.CreateLabel(m_GameOver, "Title", "THE GOOSE\nGOT YOU", 112f, UITheme.Yolk, true, TextAnchor.MiddleCenter, UITheme.Brown, 0.28f, UIFont.Display, autoSize: true);
+            UIFactory.Place(m_GoTitle.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -210f), new Vector2(920f, 300f));
             m_GoTitle.Rect.localRotation = Quaternion.Euler(0f, 0f, -3f);
             m_GoGrudge = UIFactory.CreateLabel(m_GameOver, "Grudge", "", 34f, UITheme.White, true, TextAnchor.MiddleCenter, UITheme.Brown, 0.22f);
-            UIFactory.Place(m_GoGrudge.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -462f), new Vector2(900f, 56f));
+            UIFactory.Place(m_GoGrudge.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -530f), new Vector2(900f, 56f));
             m_GoGrudge.SetActive(false);
 
             var card = UIFactory.CreatePanel(m_GameOver, "ResultCard", UITheme.CreamPanel);
@@ -316,8 +343,8 @@ namespace GooseBrawl
             var stampLabel = UIFactory.CreateLabel(m_NewBestStamp.transform, "Text", "NEW BEST!", 40f, UITheme.White);
             UIFactory.Stretch(stampLabel.Rect, 6f);
 
-            BottomButton(m_GameOver, "RunAgainButton", "RUN AGAIN", () => GooseGameManager.Instance.OnRunAgainPressed(), 240f);
-            SmallGlassButton(m_GameOver, "MoveNest", "MOVE NEST", new Vector2(0.5f, 0f), new Vector2(0f, 120f), new Vector2(420f, 84f),
+            BottomButton(m_GameOver, "RunAgainButton", "RUN AGAIN", () => GooseGameManager.Instance.OnRunAgainPressed(), 260f);
+            SmallGlassButton(m_GameOver, "MoveNest", "MOVE NEST", new Vector2(0.5f, 0f), new Vector2(0f, 110f), new Vector2(420f, 84f),
                 () => GooseGameManager.Instance.OnMoveNestPressed(), out _);
         }
 
@@ -553,14 +580,32 @@ namespace GooseBrawl
             m_Best.Text = "BEST " + ScoreManager.FormatTime(bestTime);
         }
 
-        /// <summary>The BREAD button: hidden outside the chase, dimmed while recharging.</summary>
-        public void SetBread(bool visible, bool ready, float rechargeLeft)
+        static Sprite RingSprite
+        {
+            get
+            {
+                if (s_Ring != null) return s_Ring;
+                var tex = ProceduralAssets.SoftRingTexture(256, 0.80f, 0.93f, 0.05f);
+                s_Ring = Sprite.Create(tex, new Rect(0f, 0f, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+                return s_Ring;
+            }
+        }
+
+        /// <summary>The bread button: shown only while a throw is available; scale, ring and opacity follow the goose's closeness.</summary>
+        public void SetBread(bool visible, float danger)
         {
             if (m_BreadButton == null) return;
             if (m_BreadButton.gameObject.activeSelf != visible) m_BreadButton.gameObject.SetActive(visible);
             if (!visible) return;
-            m_BreadLabel.Text = ready ? "BREAD" : "BREAD " + Mathf.CeilToInt(rechargeLeft) + "s";
-            m_BreadLabel.Color = ready ? UITheme.Yolk : UITheme.InkMuted;
+            m_BreadDanger = Mathf.Clamp01(danger);
+        }
+
+        public void SetBreadTexture(Texture texture)
+        {
+            if (m_BreadRoll == null) return;
+            m_BreadRoll.texture = texture;
+            m_BreadRoll.enabled = texture != null;
+            if (m_BreadFlat != null) m_BreadFlat.enabled = texture == null;
         }
 
         /// <summary>What the goose just said, in the audience's reading position.</summary>
@@ -568,7 +613,7 @@ namespace GooseBrawl
         {
             if (m_SubtitlePill == null || string.IsNullOrEmpty(text)) return;
             bool results = m_GameOver != null && m_GameOver.gameObject.activeSelf;
-            m_SubtitlePill.anchoredPosition = results ? new Vector2(0f, 470f) : new Vector2(60f, 196f);
+            m_SubtitlePill.anchoredPosition = results ? new Vector2(0f, 470f) : new Vector2(-70f, 196f);
             m_Subtitle.Text = text;
             m_SubtitleUntil = Time.unscaledTime + Mathf.Max(0.8f, seconds);
             m_SubtitlePill.gameObject.SetActive(true);
@@ -758,6 +803,18 @@ namespace GooseBrawl
             else if (m_ShakeRoot.anchoredPosition != m_ShakeBase)
             {
                 m_ShakeRoot.anchoredPosition = m_ShakeBase;
+            }
+
+            // Bread button: calm at a distance, the focus when the goose closes in.
+            if (m_BreadButton != null && m_BreadButton.gameObject.activeSelf)
+            {
+                float focus = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((m_BreadDanger - 0.35f) / 0.5f));
+                float pulse = 0.5f + 0.5f * Mathf.Sin(t * 5.5f);
+                float scale = Mathf.Lerp(1f, 1.38f, focus) * (1f + 0.03f * focus * pulse);
+                m_BreadButton.localScale = Vector3.Lerp(m_BreadButton.localScale, Vector3.one * scale, dt * 6f);
+                var ring = m_BreadRing.color; ring.a = focus * Mathf.Lerp(0.25f, 0.85f, pulse); m_BreadRing.color = ring;
+                var face = m_BreadFace.color; face.a = Mathf.Lerp(UITheme.GlassStrong.a * 0.75f, UITheme.GlassStrong.a, focus); m_BreadFace.color = face;
+                if (m_BreadRoll != null && m_BreadRoll.enabled) { var rc = m_BreadRoll.color; rc.a = Mathf.Lerp(0.8f, 1f, focus); m_BreadRoll.color = rc; }
             }
 
             // Goose-o-meter

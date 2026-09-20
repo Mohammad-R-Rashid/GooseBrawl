@@ -56,8 +56,8 @@ namespace GooseBrawl
         public float outlastSeconds = 45f;
         [Tooltip("A missed lunge counts as a DODGE when the player moved at least this far during it (meters).")]
         public float dodgeDistance = 0.35f;
-        [Tooltip("Seconds of survival before another bread can be thrown.")]
-        public float breadRechargeSeconds = 20f;
+        [Tooltip("Bread throws per round (one: it is the save-me, not a weapon).")]
+        public int breadPerRound = 1;
 
         public GooseGameState State { get; private set; } = GooseGameState.Boot;
         public event Action<GooseGameState> StateChanged;
@@ -104,7 +104,7 @@ namespace GooseBrawl
         Vector3 m_LungeStartPos;
         GooseBrainClient.LineResult m_IntroLine;
         BreadController m_Bread;
-        float m_BreadReadyAt;
+        BreadIconRenderer m_BreadIcon;
         public int BreadsThrown { get; private set; }
         static readonly Vector3 k_ThrowHandLocal = new Vector3(0.06f, -0.14f, 0.44f);
 
@@ -171,6 +171,8 @@ namespace GooseBrawl
             State = GooseGameState.Boot;
             StateChanged?.Invoke(State);
             UI.ShowStart(Score.BestScore, Score.BestTime, UseMockAR);
+            m_BreadIcon = BreadIconRenderer.Create(Materials);
+            UI.SetBreadTexture(m_BreadIcon != null ? m_BreadIcon.Texture : null);
             if (Yell != null)
             {
                 Yell.Yelled += OnPlayerYelled;
@@ -206,8 +208,8 @@ namespace GooseBrawl
                     }
                     if (Score.SurvivalTime >= outlastSeconds && !(Bench != null && Bench.Running)) OnGooseGaveUp();
                 }
-                bool breadVisible = Goose != null && !Goose.FlyingIn && !Goose.Glaring && m_Bread == null && !IsPaused;
-                UI.SetBread(breadVisible, Score.SurvivalTime >= m_BreadReadyAt, m_BreadReadyAt - Score.SurvivalTime);
+                bool breadVisible = Goose != null && !Goose.FlyingIn && !Goose.Glaring && m_Bread == null && !IsPaused && BreadsThrown < breadPerRound;
+                UI.SetBread(breadVisible, Goose != null ? Goose.Danger01 : 0f);
             }
 
             bool showTracking = !Player.TrackingGood && State != GooseGameState.Boot && State != GooseGameState.GameOver && !IsPaused;
@@ -637,7 +639,6 @@ namespace GooseBrawl
             m_Taunted = false;
             LastRoundWon = false;
             BreadsThrown = 0;
-            m_BreadReadyAt = 0f;
             if (m_Bread != null) { Destroy(m_Bread.gameObject); m_Bread = null; }
             if (Yell != null) Yell.BeginListening();
             if (Perf != null && !(Bench != null && Bench.Running))
@@ -702,7 +703,7 @@ namespace GooseBrawl
             SetState(GooseGameState.GameOver);
             LastRoundWon = false;
             Persona.RecordLoss(Score.SurvivalTime);
-            UI.SetBread(false, false, 0f);
+            UI.SetBread(false, 0f);
             if (Yell != null) Yell.EndListening();
             EndRoundTelemetry("caught");
             UI.SetLocatorTarget(null);
@@ -759,7 +760,7 @@ namespace GooseBrawl
             if (Yell != null) Yell.EndListening();
             EndRoundTelemetry("outlasted");
             UI.SetLocatorTarget(null);
-            UI.SetBread(false, false, 0f);
+            UI.SetBread(false, 0f);
             Danger.ResetEffects();
             if (Goose != null) Goose.GiveUp();
             StartFlow(WinRoutine());
@@ -822,16 +823,14 @@ namespace GooseBrawl
         // ------------------------------------------------------------------ bread
         public void OnBreadPressed()
         {
-            if (!ChaseActive || IsPaused || Goose == null || m_Bread != null) return;
+            if (!ChaseActive || IsPaused || Goose == null || m_Bread != null || BreadsThrown >= breadPerRound) return;
             if (Goose.FlyingIn || Goose.Glaring || Goose.State == GooseState.JumpAttack || Goose.State == GooseState.Dash || Goose.State == GooseState.Eating) return;
-            if (Score.SurvivalTime < m_BreadReadyAt) { Haptics.Light(); return; }
             var cam = Player.Cam;
             Vector3 from = cam != null ? cam.transform.TransformPoint(k_ThrowHandLocal) : Player.Position;
             Vector3 landing = FindBreadLanding();
             landing.y = Goose.Movement.SampleFloor(landing);
             m_Bread = BreadController.Create(Materials, from);
             BreadsThrown++;
-            m_BreadReadyAt = Score.SurvivalTime + breadRechargeSeconds;
             Audio.PlayThrowWhoosh(from);
             Haptics.Transient(0.35f, 0.7f);
             UI.ShowMessage("BREAD!", 0.7f, UITheme.Yolk);

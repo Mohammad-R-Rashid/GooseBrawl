@@ -27,8 +27,8 @@ furniture the goose can be steered around. Sound on, volume up, haptics on.
    angrily when it has to reroute.
 8b. **Yell at it.** Shout at the phone ("GO AWAY, KEVIN!"). It flinches (feathers, RUDE.), backs off, then dashes back at you.
     Two seconds later it answers what you actually said. Say out loud that it heard you.
-8c. **Bread.** When it is close, tap **BREAD** (bottom left). The roll flies past the goose, it detours, eats it (OM NOM., crumbs)
-    and comes back angrier with a dash. One roll per 20 s.
+8c. **Bread.** As the goose closes in, the round bread button (bottom right) grows and pulses. Tap it once: the roll flies past
+    the goose, it detours, eats it (OM NOM., crumbs) and comes back angrier with a dash. One roll per round.
 8d. **Dodge.** When it crouches to lunge, sidestep half a metre: DODGED! (hit-stop, feathers) and a sore-loser line. DODGES count on the HUD.
 9. **Escalation.** After ~8 seconds the goose starts **flap-dashing**: short low hops that cover a couple of metres
    in a blink (it never lands closer than 1.8 m). The hops get more frequent, the animation faster, feathers start
