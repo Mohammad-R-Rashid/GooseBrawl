@@ -71,7 +71,7 @@ spoken beat is deterministic and every beat has an offline fallback in `Assets/R
 on wifi. Shipped setting: the voice is the local bank only (`GooseBrainClient.fetchVoiceAudio` off): nothing is generated or
 fetched live in a real-time game; the brain names the goose, keeps the memory and hears the shouts, and every beat plays its
 bank line on the beat (`payload.spoken` tells the brain what was said). Coherence rule: the subtitle pill only ever shows
-what the voice is saying. Speech has its own source; honk bursts are cancelled and blocked while it plays. Only the newest pending line is retained, and interruptions stop both active and waiting speech. A reaction that has waited more than two seconds behind another
+what the voice is saying. Speech has its own source; honk bursts are cancelled and blocked while it plays. Only the newest pending line is retained, and explicit interruptions stop both active and waiting speech. At catch/results, the current sentence finishes naturally while unheard chase reactions are cleared. A reaction that has waited more than two seconds behind another
 line, or that is still queued when the round ends, is dropped instead of played late. With brain audio switched on, the
 shout reply waits 3.5 s and the round-end line 2.5 s (`GooseVoice.BrainDeadline`) before the bank line plays:
 
@@ -342,7 +342,7 @@ the time big, honks survived and the best time. Best time and games played are t
   that puts the user-facing camera first (`GooseConfigurationChooser` in ARBootstrapper.cs): AR Foundation's default picks
   the ARKit configuration with the most requested features, so planes + meshing + occlusion always outvoted the selfie
   request and the rear camera stayed. Planes, meshing and environment occlusion are off for the selfie (people occlusion requested only when supported by the front-camera configuration,
-  otherwise the goose is composed beside your face) and restored on BACK. In the Editor every capture is written to
+  otherwise the goose is composed beside your face) and restored on BACK. Result captures use asynchronous GPU readback without holding the results transition; the capture is flipped on Metal so saved photos are upright. In the Editor every capture is written to
   `Library/ShareShots/`.
 - **Goose Board**: when the Worker is reachable the card shows a name field and **POST TO BOARD** ("#3 ON THE BOARD"); the
   title screen shows today's top three. Everything degrades silently offline (row and ticker hidden, card shorter).
@@ -382,3 +382,9 @@ All the interesting numbers are serialized fields:
   progress toward the player. Blocked directions slow the goose; if nothing is clear it stops, honks, backs up and turns.
   Flap-dashes are only attempted when the whole hop path is clear and there is floor at the landing spot.
 - With no environment data yet, the goose moves a little slower and stops at anything it does hit.
+
+### Transition and nest refinement (2026-09-20)
+
+Shout detection now keeps its microphone ring buffer warm during the active game, while only analyzing audio during the chase. Leaving the app or returning to the title releases the microphone. This avoids audio-session resets during the entrance and caught transitions. The goose instance, egg fragments, and splash are prepared before those beats; score saves are deferred until after the catch animation.
+
+Five spatial spectator sources answer with short real goose calls around the player and duck under dialogue. Long uncaptioned field recordings remain disabled. The nest is a shallower earth-lined cup with fine irregular twigs and crossed grass bedding; the egg rests on its side at a mesh-derived contact height, without idle spinning or bobbing.

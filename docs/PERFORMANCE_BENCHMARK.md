@@ -107,7 +107,15 @@ code rather than the matrix:
 
 The title/scan phase prepares the cached egg mesh, shell speckle texture, feather texture and any missing material fallbacks, one item per frame. The toast mesh is shared between the rotating HUD icon and thrown slices. Goose dust, footsteps, crumbs, feather bursts and the feather trail are allocated over the entrance frames without emitting particles. Effect counts, materials, simulation settings and render quality are unchanged.
 
-The bread icon camera only renders while its HUD button is visible; its rotation still advances while hidden. Its unlit material needs no dedicated point lights, and camera enumeration reuses storage. Egg shell fragments share their identical outer/inner materials; crack materials are prepared with the egg, and dynamically generated fragment meshes are released when the cracked egg is cleared. These reduce gameplay allocations and avoid resources accumulating across rounds. Device frame-time improvements require measurement; the Editor smoke test checks preparation, shared mesh identity and hidden-camera suspension.
+The bread icon camera only renders while its HUD button is visible; its rotation still advances while hidden. Its unlit material needs no dedicated point lights, and camera enumeration reuses storage. Egg shell fragments share their identical outer/inner materials; the entire crack and splash are prepared across title/scan frames and reused between rounds. Generated meshes and owned materials are released with the egg. These reduce gameplay allocations and avoid resources accumulating across rounds. Device frame-time improvements require measurement; the Editor smoke test checks preparation, shared mesh identity and hidden-camera suspension.
+
+### Transition work
+
+The microphone ring buffer starts during scanning and stays warm through the active game. Chase/catch only arm or disarm shout detection, avoiding `Microphone.Start`/`End` and iOS audio-route rebuilds while dialogue is playing. The buffer is released on returning to the title, losing focus, or backgrounding; outside the chase its samples are not analyzed or sent. Pending shout/transcription work is invalidated at round end.
+
+An audible sentence finishes across catch/results, while unheard reactions and old network replies are dropped. Dialogue keeps its normal pitch through visual slow motion. Surrounding spectators use five preallocated spatial sources and existing short goose recordings, with dialogue ducking; the long field recordings and synthesized breathing remain off.
+
+The goose instance and its effects are prepared during nest placement. Shell meshes and splash are prepared before the egg drop. Automatic result photos use preallocated render targets and asynchronous GPU readback, including a GPU flip for Metal, and no longer delay the results coroutine. Score/persona preference writes are flushed together after the catch beat or on app suspension. These remove identified synchronous work from transition frames; a device trace is still required to quantify the remaining frame-time spikes.
 
 ## Results
 

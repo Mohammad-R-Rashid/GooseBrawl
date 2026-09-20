@@ -157,11 +157,19 @@ namespace GooseBrawl
         }
 
         /// <summary>
-        /// The round is over (tackled or outlasted): queued mid-chase reactions are dropped, a reaction still playing is cut
-        /// (the tackle is what you hear now) and brain replies still in flight for the chase are ignored. The round-end line
+        /// The round is over: queued mid-chase reactions and in-flight replies are dropped, while the audible sentence
+        /// finishes naturally across the transition. The round-end line
         /// queued after this plays normally.
         /// </summary>
-        public void RoundEnded() => Interrupt();
+        public void RoundEnded()
+        {
+            // The sentence already audible may finish across the cut. Only unheard reactions
+            // and in-flight network replies belong to the old round.
+            if (m_Current == null) { Interrupt(); return; }
+            m_Generation++;
+            StaleCount += m_Queue.Count;
+            m_Queue.Clear();
+        }
 
         string BankPath(GooseLines.Beat beat, int repeat)
         {
@@ -344,13 +352,13 @@ namespace GooseBrawl
                 LastSource = source;
                 SpokenCount++;
                 GooseTelemetry.Increment("voice.spoken", 1, ("source", source));
-                float length = clip.length / Mathf.Max(0.3f, m_Mgr != null && m_Mgr.Audio != null ? m_Mgr.Audio.SlowMoPitch : 1f);
+                float length = clip.length;
                 ApplyCharacter();
                 float voicePitch = m_Mgr != null && m_Mgr.Audio != null ? m_Mgr.Audio.voicePitch : 1f;
                 length /= Mathf.Max(0.5f, voicePitch);
                 m_Mgr.Audio.SetSpeechActive(m_Goose.voiceSource, true);
                 m_Source.volume = m_Mgr.Audio.masterVolume;
-                m_Source.pitch = (m_Mgr != null && m_Mgr.Audio != null ? m_Mgr.Audio.SlowMoPitch : 1f) * voicePitch;
+                m_Source.pitch = voicePitch; // visual slow motion must not stretch dialogue
                 using (var span = GooseTelemetry.StartSpan("voice.play", source))
                 {
                     span.SetData("seconds", clip.length);
@@ -363,7 +371,7 @@ namespace GooseBrawl
                     while (m_Source.isPlaying && m_Source.clip == clip && t < length + 0.5f)
                     {
                         t += Time.unscaledDeltaTime;
-                        m_LowPass.cutoffFrequency = Mathf.Min(m_HonkLowPass != null ? m_HonkLowPass.cutoffFrequency : 22000f, m_Mgr.Audio.voiceLowPassHz);
+                        m_LowPass.cutoffFrequency = Mathf.Min(Mathf.Max(4000f, m_HonkLowPass != null ? m_HonkLowPass.cutoffFrequency : 22000f), m_Mgr.Audio.voiceLowPassHz);
                         if (t >= nextBob)
                         {
                             nextBob = t + 0.32f;

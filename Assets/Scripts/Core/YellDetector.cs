@@ -56,6 +56,22 @@ namespace GooseBrawl
         float[] m_Buffer = new float[4096];
         const int ClipSeconds = 10;
         bool m_Permitted;
+        int m_CaptureGeneration;
+        public bool MicrophoneWarm => m_Clip != null;
+        public int MicrophoneStarts { get; private set; }
+
+        // Keep the hardware running between active-game beats. Listening only arms detection;
+        // toggling Microphone.Start/End at chase/catch rebuilds iOS audio and cuts off speech.
+        bool PrepareMicrophone()
+        {
+            if (m_Clip != null) return true;
+            if (!yellEnabled || (Application.isEditor && !listenInEditor)) return false;
+            if (Microphone.devices == null || Microphone.devices.Length == 0) { Available = false; return false; }
+            m_Clip = Microphone.Start(null, true, ClipSeconds, sampleRate);
+            Available = m_Clip != null;
+            if (Available) MicrophoneStarts++;
+            return Available;
+        }
 
         /// <summary>Trigger the OS microphone prompt on the title screen so it never interrupts the chase.</summary>
         public void WarmUpPermission()
@@ -64,12 +80,7 @@ namespace GooseBrawl
             m_Permitted = true;
             try
             {
-                if (Microphone.devices == null || Microphone.devices.Length == 0) { Available = false; GooseTelemetry.Log(GooseTelemetry.Level.Info, "yell.no_microphone"); return; }
-                var c = Microphone.Start(null, false, 1, sampleRate);
-                Microphone.End(null);
-                Available = c != null;
-                var mgr = GooseGameManager.Instance;
-                if (mgr != null && mgr.Audio != null) mgr.Audio.EnsurePlaybackSession("permission_warmup");
+                PrepareMicrophone();
                 // On-device speech (does it know its name?): probe and ask once, right behind the microphone prompt.
                 m_SpeechAvailable = GooseSpeech.Available;
                 if (m_SpeechAvailable && GooseSpeech.AuthorizationStatus == 0) GooseSpeech.RequestAuthorization();
@@ -88,12 +99,9 @@ namespace GooseBrawl
             if (Application.isEditor && !listenInEditor) return;
             try
             {
-                if (Microphone.devices == null || Microphone.devices.Length == 0) { Available = false; return; }
-                m_Clip = Microphone.Start(null, true, ClipSeconds, sampleRate);
-                if (m_Clip == null) { Available = false; return; }
-                Available = true;
+                if (!PrepareMicrophone()) return;
                 Listening = true;
-                m_LastPos = 0;
+                m_LastPos = Mathf.Max(0, Microphone.GetPosition(null));
                 m_LoudSince = -1f;
                 FloorDb = -50f;
                 if (PerfProbe.Instance != null) PerfProbe.Instance.MicListening = true;
@@ -108,16 +116,29 @@ namespace GooseBrawl
 
         public void EndListening()
         {
-            if (!Listening) return;
             Listening = false;
-            try { Microphone.End(null); } catch { }
-            m_Clip = null;
+            m_CaptureGeneration++;
+            RecognitionPending = false;
+            m_FakeTranscript = null;
+            m_LoudSince = -1f;
             if (PerfProbe.Instance != null) PerfProbe.Instance.MicListening = false;
-            var mgr = GooseGameManager.Instance;
-            if (mgr != null && mgr.Audio != null) mgr.Audio.EnsurePlaybackSession("mic_end");
         }
 
-        void OnDisable() { EndListening(); }
+        public void ReleaseMicrophone(bool restorePlayback = true)
+        {
+            EndListening();
+            if (m_Clip == null) return;
+            try { Microphone.End(null); } catch { }
+            Destroy(m_Clip);
+            m_Clip = null;
+            m_Permitted = false;
+            var mgr = GooseGameManager.Instance;
+            if (restorePlayback && mgr != null && mgr.Audio != null) mgr.Audio.EnsurePlaybackSession("mic_release");
+        }
+
+        void OnDisable() => ReleaseMicrophone(false);
+        void OnApplicationPause(bool paused) { if (paused) ReleaseMicrophone(false); }
+        void OnApplicationFocus(bool focused) { if (!focused && !Application.isEditor) ReleaseMicrophone(false); }
 
         void Update()
         {
@@ -196,7 +217,9 @@ namespace GooseBrawl
 
         IEnumerator CaptureWindow(bool simulated)
         {
+            int generation = m_CaptureGeneration;
             yield return new WaitForSecondsRealtime(captureAfter);
+            if (generation != m_CaptureGeneration) yield break;
             byte[] wav = null;
             try
             {
@@ -236,6 +259,7 @@ namespace GooseBrawl
         /// <summary>Feed the clip to the on-device recogniser and publish the transcript (or "" on timeout / failure).</summary>
         IEnumerator RecognizeRoutine(byte[] wav, float yellTime)
         {
+            int generation = m_CaptureGeneration;
             string text = "";
             int status = -1;
             float t0 = Time.unscaledTime;
@@ -263,6 +287,7 @@ namespace GooseBrawl
                     }
                 }
             }
+            if (generation != m_CaptureGeneration) yield break;
             RecognitionPending = false;
             bool late = Time.unscaledTime > yellTime + speechDeadlineAfterYell + 0.3f;
             GooseTelemetry.Log(GooseTelemetry.Level.Info, "speech.result", ("ms", (Time.unscaledTime - t0) * 1000f), ("status", status), ("late", late), ("text", text ?? ""));

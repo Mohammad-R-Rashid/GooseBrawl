@@ -88,3 +88,6 @@
 - **No pooling for the dust particle system** beyond reusing one system per goose; there is only ever one goose.
 - The TextMeshPro essential resources are imported by Setup; if that import fails the UI silently uses legacy
   `UnityEngine.UI.Text`, which looks a little softer.
+
+- **Transition fixes need device profiling:** microphone hardware stays warm across active-game beats, screenshots read back asynchronously where supported, and active dialogue finishes across catch/results. Editor tests verify sequencing and image orientation, but do not measure iPhone audio-route stalls or prove that all frame-time spikes are gone.
+- **Microphone lifecycle:** shout analysis runs only during the chase; the in-memory ring buffer stays allocated/running during scan, placement, and results to keep the audio route stable. It is stopped on title return, app focus loss, or backgrounding. Samples outside an armed chase are not analyzed or uploaded.

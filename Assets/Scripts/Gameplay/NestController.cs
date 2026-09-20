@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 namespace GooseBrawl
 {
     /// <summary>
-    /// The goose nest: a lumpy mud bowl, one combined mesh of woven twig strands (normal mapped), a few down
+    /// The goose nest: a shallow earth-lined bowl, one combined mesh of woven twig strands (normal mapped), a few down
     /// feathers, the egg, and a warm point light that only burns while the egg is home. Everything casts a
     /// real shadow onto the shadow catcher. No decals, no glow sprites.
     /// </summary>
@@ -39,15 +39,15 @@ namespace GooseBrawl
             {
                 // Mud bowl: darker, rougher clone of the twig material.
                 var bowlMat = new Material(twigMat) { name = "Nest_Bowl" };
-                bowlMat.SetColor("_BaseColor", new Color(0.62f, 0.52f, 0.42f));
+                bowlMat.SetColor("_BaseColor", new Color(0.40f, 0.32f, 0.23f));
                 bowlMat.SetFloat("_Smoothness", 0.06f);
                 bowlMat.SetTextureScale("_BaseMap", new Vector2(2f, 0.5f));
                 bowlMat.SetTextureScale("_BumpMap", new Vector2(2f, 0.5f));
-                MeshPart("Bowl", ProceduralAssets.NestBowlMesh("NestBowl", 0.27f, 0.16f, 1234), bowlMat, Vector3.zero);
+                MeshPart("Bowl", ProceduralAssets.NestBowlMesh("NestBowl", 0.27f, 0.085f, 1234), bowlMat, Vector3.zero);
 
                 // All woven strands as one draw call. They do not cast shadows: dozens of thin twig shadows
                 // on the egg read as noise, and the bowl already grounds the nest on the floor.
-                var strands = ProceduralAssets.NestStrandsMesh("NestStrands", 70, 1234, out _);
+                var strands = ProceduralAssets.NestStrandsMesh("NestStrands", 110, 1234, out _);
                 MeshPart("Strands", strands, twigMat, Vector3.zero, castShadows: false);
 
                 // A few down feathers inside the bowl.
@@ -56,11 +56,11 @@ namespace GooseBrawl
                 Random.InitState(4321);
                 for (int i = 0; i < 7; i++)
                 {
-                    var q = ProceduralAssets.CreateQuad("Down" + i, 0.055f, featherMat);
+                    var q = ProceduralAssets.CreateQuad("Down" + i, 0.045f, featherMat);
                     q.transform.SetParent(transform, false);
                     float a = Random.Range(0f, Mathf.PI * 2f);
                     float r = Random.Range(0.02f, 0.13f);
-                    q.transform.localPosition = new Vector3(Mathf.Cos(a) * r, 0.105f + Random.Range(0f, 0.012f), Mathf.Sin(a) * r);
+                    q.transform.localPosition = new Vector3(Mathf.Cos(a) * r, 0.041f + Random.Range(0f, 0.004f), Mathf.Sin(a) * r);
                     q.transform.localRotation = Quaternion.Euler(Random.Range(-14f, 14f), Random.Range(0f, 360f), Random.Range(-14f, 14f));
                     var qr = q.GetComponent<Renderer>();
                     qr.shadowCastingMode = ShadowCastingMode.Off;

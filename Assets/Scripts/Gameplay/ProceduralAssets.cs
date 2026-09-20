@@ -1439,12 +1439,13 @@ namespace GooseBrawl
             for (int i = 0; i < strands; i++)
             {
                 float layer = strands > 1 ? i / (float)(strands - 1) : 0.5f;       // 0 = bottom outer, 1 = top inner
-                float radius = Mathf.Lerp(0.26f, 0.15f, layer) + Range(-0.03f, 0.03f);
-                float baseY = Mathf.Lerp(0.03f, 0.14f, layer) + Range(-0.012f, 0.012f);
-                float sweep = Range(60f, 200f);
+                // Short, fine twigs cross at varied angles instead of forming thick concentric ropes.
+                float radius = Range(0.19f, 0.28f);
+                float baseY = Mathf.Lerp(0.025f, 0.088f, layer) + Range(-0.012f, 0.012f);
+                float sweep = Range(24f, 105f);
                 float start = Range(0f, 360f);
                 float sag = Range(-0.015f, 0.02f);
-                float thick = Range(0.007f, 0.013f);
+                float thick = Range(0.002f, 0.0045f);
                 int strip = rng.Next(0, 4);
                 Add(StrandMesh(name + "_S" + i, radius, start, sweep, baseY, sag, thick, seed * 7 + i * 7 + 1), Matrix4x4.identity, strip);
             }
@@ -1453,8 +1454,8 @@ namespace GooseBrawl
                 float a = Range(0f, 360f);
                 float radius = Range(0.27f, 0.34f);
                 float sweep = Range(25f, 50f);
-                float baseY = Range(0.06f, 0.15f);
-                var m = StrandMesh(name + "_L" + i, radius, a, sweep, baseY, Range(0.02f, 0.06f), 0.008f, seed * 11 + 500 + i);
+                float baseY = Range(0.03f, 0.085f);
+                var m = StrandMesh(name + "_L" + i, radius, a, sweep, baseY, Range(0.005f, 0.02f), 0.003f, seed * 11 + 500 + i);
                 // Tilt the loose end about the rim tangent at its midpoint so it pokes out at an angle.
                 float mid = (a + sweep * 0.5f) * Mathf.Deg2Rad;
                 Vector3 pivot = new Vector3(Mathf.Cos(mid) * radius, baseY, Mathf.Sin(mid) * radius);
@@ -1462,6 +1463,18 @@ namespace GooseBrawl
                 Quaternion tilt = Quaternion.AngleAxis(Range(-25f, 25f), axis);
                 Matrix4x4 mtx = Matrix4x4.TRS(pivot, tilt, Vector3.one) * Matrix4x4.Translate(-pivot);
                 Add(m, mtx, rng.Next(0, 4));
+            }
+
+            // Loose cross-laid grass lines the cup, covering the supporting earth surface.
+            for (int i = 0; i < 65; i++)
+            {
+                float a = Range(0f, 360f), sweep = Range(35f, 80f), radius = Range(0.06f, 0.14f);
+                float mid = (a + sweep * 0.5f) * Mathf.Deg2Rad;
+                float placementAngle = Range(0f, Mathf.PI * 2f), placementRadius = Range(0f, 0.15f);
+                Vector3 target = new Vector3(Mathf.Cos(placementAngle) * placementRadius, 0f, Mathf.Sin(placementAngle) * placementRadius);
+                Vector3 arcCentre = new Vector3(Mathf.Cos(mid) * radius, 0f, Mathf.Sin(mid) * radius);
+                var grass = StrandMesh(name + "_Bed" + i, radius, a, sweep, Range(0.032f, 0.040f), Range(-0.004f, 0.004f), Range(0.0015f, 0.003f), seed + 800 + i);
+                Add(grass, Matrix4x4.Translate(target - arcCentre), rng.Next(0, 4));
             }
 
             var mesh = new Mesh { name = name };

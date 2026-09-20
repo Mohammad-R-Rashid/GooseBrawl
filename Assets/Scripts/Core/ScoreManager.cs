@@ -25,10 +25,23 @@ namespace GooseBrawl
             Load();
         }
 
+        float m_FlushAt = -1f;
+
         void Update()
         {
             if (Running) SurvivalTime += Time.deltaTime;
+            if (m_FlushAt >= 0f && Time.unscaledTime >= m_FlushAt) Flush();
         }
+
+        void Flush()
+        {
+            if (m_FlushAt < 0f) return;
+            m_FlushAt = -1f;
+            PlayerPrefs.Save();
+        }
+
+        void OnApplicationPause(bool paused) { if (paused) Flush(); }
+        void OnDisable() => Flush();
 
         public void Load()
         {
@@ -62,15 +75,16 @@ namespace GooseBrawl
                 BestTime = SurvivalTime;
                 LastRunWasBest = true;
             }
-            Save();
+            Save(false);
+            m_FlushAt = Time.unscaledTime + 2f;
         }
 
-        public void Save()
+        public void Save(bool flush = true)
         {
             PlayerPrefs.SetInt(BestScoreKey, BestScore);
             PlayerPrefs.SetFloat(BestTimeKey, BestTime);
             PlayerPrefs.SetInt(GamesPlayedKey, GamesPlayed);
-            PlayerPrefs.Save();
+            if (flush) PlayerPrefs.Save();
         }
 
         public static string FormatTime(float t)

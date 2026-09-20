@@ -21,7 +21,11 @@ namespace GooseBrawl
         Transform m_Nest;
         Vector3 m_LocalPos;
         Vector3 m_BaseScale;
-        float m_Seed;
+        Quaternion m_RestingRotation;
+        ParticleSystem m_Splash;
+        bool m_PreparingCrack;
+        Transform m_WhiteTransform;
+        public bool CrackPrepared { get; private set; }
         Material m_Shell, m_InnerShell, m_White, m_Yolk;
         readonly List<Mesh> m_CrackMeshes = new List<Mesh>(17);
 
@@ -38,7 +42,7 @@ namespace GooseBrawl
             var shell = new Material(mats.Egg) { name = "Egg_Speckled" };
             shell.SetTexture("_BaseMap", ProceduralAssets.SpeckleTexture(512));
             shell.SetColor("_BaseColor", Color.white);
-            shell.SetFloat("_Smoothness", 0.48f);
+            shell.SetFloat("_Smoothness", 0.28f);
             shell.DisableKeyword("_EMISSION");
             // A matte shell: environment reflections from the AR probes made it look like glazed plastic.
             shell.SetFloat("_EnvironmentReflections", 0f);
@@ -58,19 +62,21 @@ namespace GooseBrawl
             egg.m_Shell = shell;
             egg.PrepareCrackMaterials(mats);
             egg.m_Nest = parent;
-            egg.m_LocalPos = go.transform.localPosition;
+            egg.m_RestingRotation = Quaternion.Euler(18f, -28f, 68f);
+            // Rest on the actual mesh's lowest point, with the long axis laid into the lining.
+            float bottom = float.PositiveInfinity;
+            foreach (var v in mf.sharedMesh.vertices) bottom = Mathf.Min(bottom, (egg.m_RestingRotation * v).y);
+            Vector3 centreOffset = egg.m_RestingRotation * new Vector3(0f, EggHeight * 0.5f, 0f);
+            egg.m_LocalPos = new Vector3(0.018f - centreOffset.x, 0.043f - bottom, -0.012f - centreOffset.z);
+            go.transform.localPosition = egg.m_LocalPos;
+            go.transform.localRotation = egg.m_RestingRotation;
             egg.m_BaseScale = go.transform.localScale;
-            egg.m_Seed = Random.value * 10f;
             return egg;
         }
 
         void Update()
         {
             if (!Tappable) return;
-            float t = Time.time + m_Seed;
-            transform.localRotation = Quaternion.Euler(Mathf.Sin(t * 1.1f) * 3f, t * 12f, Mathf.Sin(t * 1.5f) * 3f);
-            transform.localPosition = m_LocalPos + Vector3.up * (0.006f * Mathf.Sin(t * 1.6f));
-
             if (GameInput.TryGetTap(out var screenPos) && !GameInput.IsPointerOverUI(screenPos))
             {
                 var cam = Camera.main;
@@ -85,13 +91,13 @@ namespace GooseBrawl
 
         public void ResetEgg()
         {
-            ClearCrackedEgg();
+            HideCrackedEgg();
             m_Held = false;
             m_HeldTime = 0f;
             if (transform.parent != m_Nest) transform.SetParent(m_Nest, false);
             gameObject.SetActive(true);
             transform.localPosition = m_LocalPos;
-            transform.localRotation = Quaternion.identity;
+            transform.localRotation = m_RestingRotation;
             transform.localScale = m_BaseScale;
             Tappable = true;
         }
@@ -108,6 +114,7 @@ namespace GooseBrawl
         /// <summary>Drop from wherever the egg is in the hand, with the velocity the carry physics handed it.</summary>
         public IEnumerator DropAndCrack(Camera cam, float floorY, MaterialLibrary mats, Vector3 initialWorldVelocity)
         {
+            yield return PrepareCrack(mats);
             Tappable = false;
             m_Held = false;
             gameObject.SetActive(true);
@@ -138,20 +145,22 @@ namespace GooseBrawl
             pos.y = floorY;
             CrackPosition = pos;
             gameObject.SetActive(false);
-            SpawnCrackedEgg(pos, fwd, mats);
-            var splash = ProceduralAssets.CreateSplash(null, new Color(1f, 0.78f, 0.15f, 0.95f));
-            splash.transform.position = pos + Vector3.up * 0.02f;
-            splash.Play();
-            Destroy(splash.gameObject, 3f);
+            CrackedEgg.transform.SetPositionAndRotation(pos, Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(0f, Random.Range(-40f, 40f), 0f));
+            CrackedEgg.SetActive(true);
+            m_WhiteTransform.localScale = Vector3.one * 0.4f;
+            GooseGameManager.Instance.StartCoroutine(Spread(m_WhiteTransform, 0.35f));
+            m_Splash.transform.position = pos + Vector3.up * 0.02f;
+            m_Splash.gameObject.SetActive(true);
+            m_Splash.Play();
         }
 
-        void SpawnCrackedEgg(Vector3 pos, Vector3 fwd, MaterialLibrary mats)
+        public IEnumerator PrepareCrack(MaterialLibrary mats)
         {
-            ClearCrackedEgg();
+            while (m_PreparingCrack) yield return null;
+            if (CrackPrepared) yield break;
+            m_PreparingCrack = true;
             CrackedEgg = new GameObject("CrackedEgg");
-            CrackedEgg.transform.position = pos;
-            CrackedEgg.transform.rotation = Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(0f, Random.Range(-40f, 40f), 0f);
-
+            CrackedEgg.SetActive(false);
             PrepareCrackMaterials(mats);
             var white = m_White;
             var yolk = m_Yolk;
@@ -169,14 +178,17 @@ namespace GooseBrawl
             wmr.sharedMaterial = white;
             wmr.shadowCastingMode = ShadowCastingMode.Off;
             wmr.receiveShadows = true;
-            StartCoroutine(Spread(whiteGo.transform, 0.35f));
+            m_WhiteTransform = whiteGo.transform;
+            yield return null;
 
             // Yolk dome.
             Piece(CrackedEgg.transform, "Yolk", PrimitiveType.Sphere, new Vector3(0.01f, 0.014f, 0.01f), new Vector3(0.078f, 0.034f, 0.078f), yolk, Quaternion.identity, castShadow: true);
 
             // Shell: bottom half on its side, top cap flipped, and small shards, all with jagged edges.
             ShellPiece("ShellBottom", shell, 0f, 0.48f, 0f, 360f, 0.09f, 11, new Vector3(-0.09f, 0f, 0.06f), Quaternion.Euler(105f, Random.Range(0f, 360f), 20f));
+            yield return null;
             ShellPiece("ShellTop", shell, 0.58f, 1f, 0f, 360f, 0.08f, 17, new Vector3(0.1f, 0f, -0.05f), Quaternion.Euler(-160f, Random.Range(0f, 360f), 15f));
+            yield return null;
             for (int i = 0; i < 6; i++)
             {
                 float a = Random.value * Mathf.PI * 2f;
@@ -184,7 +196,13 @@ namespace GooseBrawl
                 float a0 = Random.Range(0f, 360f);
                 ShellPiece("Shard" + i, shell, Random.Range(0.35f, 0.5f), Random.Range(0.55f, 0.7f), a0, a0 + Random.Range(28f, 55f), 0.12f, 100 + i,
                     new Vector3(Mathf.Cos(a) * r, 0.002f, Mathf.Sin(a) * r), Quaternion.Euler(Random.Range(70f, 110f), Random.value * 360f, Random.Range(-20f, 20f)));
+                yield return null;
             }
+            m_Splash = ProceduralAssets.CreateSplash(null, new Color(1f, 0.78f, 0.15f, 0.95f));
+            m_Splash.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            m_Splash.gameObject.SetActive(false);
+            CrackPrepared = true;
+            m_PreparingCrack = false;
         }
 
         void ShellPiece(string name, Material mat, float vFrom, float vTo, float angleFrom, float angleTo, float jagged, int seed, Vector3 localPos, Quaternion rot)
@@ -279,8 +297,16 @@ namespace GooseBrawl
             r.shadowCastingMode = castShadow ? ShadowCastingMode.On : ShadowCastingMode.Off;
         }
 
+        public void HideCrackedEgg()
+        {
+            if (CrackedEgg != null) CrackedEgg.SetActive(false);
+            if (m_Splash != null) { m_Splash.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear); m_Splash.gameObject.SetActive(false); }
+        }
+
         public void ClearCrackedEgg()
         {
+            CrackPrepared = false;
+            if (m_Splash != null) Destroy(m_Splash.gameObject);
             if (CrackedEgg != null) Destroy(CrackedEgg);
             CrackedEgg = null;
             foreach (var mesh in m_CrackMeshes) if (mesh != null) Destroy(mesh);

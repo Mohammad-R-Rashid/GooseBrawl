@@ -742,6 +742,8 @@ namespace GooseBrawl
         }
 
         /// <summary>SHARE · PHOTO, centred as a group; SHARE drops out when there is nothing to share.</summary>
+        public void SetShareAvailable(bool available) => LayoutActionRow(available);
+
         void LayoutActionRow(bool share)
         {
             if (m_ShareButton.gameObject.activeSelf != share) m_ShareButton.gameObject.SetActive(share);

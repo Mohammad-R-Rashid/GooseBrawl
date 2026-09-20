@@ -232,6 +232,10 @@ namespace GooseBrawl
                     ProceduralAssets.TwigNormalTexture();
                 }
             }
+            if (Share != null) Share.PrepareCapture();
+            yield return null;
+            if (Nest == null) Nest = NestController.Create(Materials);
+            yield return Nest.Egg.PrepareCrack(Materials);
             GameplayAssetsWarm = true;
         }
 
@@ -346,6 +350,8 @@ namespace GooseBrawl
             UI.ShowPlace();
             Environment.SetPlaneVisualization(true);
             Placement.Active = true;
+            if (Yell != null) Yell.WarmUpPermission();
+            StartCoroutine(PrepareGoose());
         }
 
         /// <summary>From the scan screen when the floor never shows up: back to the title.</summary>
@@ -357,6 +363,7 @@ namespace GooseBrawl
             Placement.Active = false;
             Environment.SetPlaneVisualization(false);
             SetState(GooseGameState.Boot);
+            if (Yell != null) Yell.ReleaseMicrophone();
             UI.ShowStart(Score.BestScore, Score.BestTime, UseMockAR);
         }
 
@@ -566,16 +573,50 @@ namespace GooseBrawl
 
         static float SoftDeadZone(float v, float deadZone) => Mathf.Abs(v) <= deadZone ? 0f : v - Mathf.Sign(v) * deadZone;
 
+        GooseChaseController m_PreparedGoose;
+        Renderer[] m_PreparedRenderers;
+        bool m_PreparingGoose;
+        public bool GoosePrepared => m_PreparedGoose != null && m_PreparedGoose.Visual.EffectsReady;
+
+        IEnumerator PrepareGoose()
+        {
+            if (m_PreparingGoose || m_PreparedGoose != null) yield break;
+            m_PreparingGoose = true;
+            yield return null;
+            GameObject prepared = goosePrefab != null ? Instantiate(goosePrefab) : GoosePlaceholderFactory.CreateRuntimeGoose(Materials);
+            prepared.name = "Goose";
+            prepared.transform.position = Vector3.down * 100f;
+            m_PreparedGoose = prepared.GetComponent<GooseChaseController>();
+            if (m_PreparedGoose == null) m_PreparedGoose = prepared.AddComponent<GooseChaseController>();
+            m_PreparedGoose.Initialize(this);
+            m_PreparedGoose.Movement.Airborne = true;
+            m_PreparedRenderers = prepared.GetComponentsInChildren<Renderer>();
+            foreach (var r in m_PreparedRenderers) r.forceRenderingOff = true;
+            m_PreparingGoose = false;
+        }
+
         void SpawnGoose()
         {
             if (Goose != null) Destroy(Goose.gameObject);
             if (m_GooseCatcher != null) Destroy(m_GooseCatcher.gameObject);
-
-            GameObject go = goosePrefab != null ? Instantiate(goosePrefab) : GoosePlaceholderFactory.CreateRuntimeGoose(Materials);
-            go.name = "Goose";
-            Goose = go.GetComponent<GooseChaseController>();
-            if (Goose == null) Goose = go.AddComponent<GooseChaseController>();
-            Goose.Initialize(this);
+            GameObject go;
+            if (m_PreparedGoose != null)
+            {
+                Goose = m_PreparedGoose;
+                go = Goose.gameObject;
+                foreach (var r in m_PreparedRenderers) if (r != null) r.forceRenderingOff = false;
+                m_PreparedGoose = null;
+                m_PreparedRenderers = null;
+            }
+            else
+            {
+                go = goosePrefab != null ? Instantiate(goosePrefab) : GoosePlaceholderFactory.CreateRuntimeGoose(Materials);
+                go.name = "Goose";
+                Goose = go.GetComponent<GooseChaseController>();
+                if (Goose == null) Goose = go.AddComponent<GooseChaseController>();
+                Goose.Initialize(this);
+            }
+            Goose.Movement.Airborne = false;
             var catcherMat = Materials != null ? Materials.ShadowCatcher : null;
             if (catcherMat != null) m_GooseCatcher = ShadowCatcher.Create("GooseShadowCatcher", 6f, catcherMat, FloorY, go.transform);
             UI.SetLocatorTarget(Goose.transform);
@@ -760,7 +801,7 @@ namespace GooseBrawl
             if (Yell != null) Yell.EndListening();
             EndRoundTelemetry("caught");
             UI.SetLocatorTarget(null);
-            if (Goose != null && Goose.Voice != null) Goose.Voice.RoundEnded(); // a dodge line mid-sentence would talk over the tackle
+            if (Goose != null && Goose.Voice != null) Goose.Voice.RoundEnded(); // finish the audible sentence; discard unheard chase reactions
             Audio.PlayCaught(Goose != null ? Goose.transform.position : Player.FlatPosition);
             Haptics.Play(HapticsService.Pattern.Catch);
             Danger.CaughtEffect();
@@ -788,7 +829,7 @@ namespace GooseBrawl
             UI.ShowMessage("HONK.", 0.9f, UITheme.Danger);
             // The take-home frame: a third of a second into the slow motion the goose is squashed and flapping in your face.
             yield return new WaitForSecondsRealtime(0.35f);
-            if (Share != null && GooseOnScreen()) yield return Share.Capture(StampLine1(), StampLine2(false), t => { if (t != null) Share.SetShot(t); });
+            if (Share != null && GooseOnScreen()) Share.CaptureResult(StampLine1(), StampLine2(false));
             yield return new WaitForSecondsRealtime(0.55f); // the Catch haptic's rumble plays through the slow motion untouched
             Time.timeScale = 1f;
             if (Look != null) Look.SetSlowMotion(false);
@@ -833,7 +874,7 @@ namespace GooseBrawl
             yield return new WaitForSecondsRealtime(1.2f);
             Audio.PlayNewBest();
             yield return new WaitForSecondsRealtime(1.4f);
-            if (Share != null && GooseOnScreen()) yield return Share.Capture(StampLine1(), StampLine2(true), t => { if (t != null) Share.SetShot(t); });
+            if (Share != null && GooseOnScreen()) Share.CaptureResult(StampLine1(), StampLine2(true));
             string title = string.Format(k_WinTitles[Mathf.Max(0, RoundsThisSession - 1) % k_WinTitles.Length], Persona.Name);
             UI.ShowGameOver(title, Score.SurvivalTime, Goose != null ? Goose.HonkCount : 0, DodgeCount, Score.BestTime, Score.BestScore, Score.LastRunWasBest, true, "", BuildRecap(true));
             if (Goose != null && Goose.Voice != null) Goose.Voice.SayBeat(GooseLines.Beat.Outlasted, EventPayload(), null, 2.5f);
@@ -1168,7 +1209,7 @@ namespace GooseBrawl
             BeginBrainSession();
             if (Nest != null)
             {
-                Nest.Egg.ClearCrackedEgg();
+                Nest.Egg.HideCrackedEgg();
                 Nest.gameObject.SetActive(false);
             }
             BeginPlacement();
@@ -1187,7 +1228,7 @@ namespace GooseBrawl
             BeginBrainSession();
             if (Nest != null)
             {
-                Nest.Egg.ClearCrackedEgg();
+                Nest.Egg.HideCrackedEgg();
                 Nest.gameObject.SetActive(false);
             }
             BeginPlacement();

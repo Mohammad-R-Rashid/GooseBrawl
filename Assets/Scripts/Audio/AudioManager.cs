@@ -210,6 +210,16 @@ namespace GooseBrawl
             return c;
         }
 
+        /// <summary>One real goose call for a surrounding spectator, on its own source.</summary>
+        public bool PlaySpectatorCall(AudioSource source, float pitch)
+        {
+            if (source == null || m_Suspended || m_RealHonks.Length == 0) return false;
+            source.clip = m_RealHonks[Random.Range(0, m_RealHonks.Length)];
+            source.pitch = pitch;
+            source.Play();
+            return true;
+        }
+
         // ---- UI / 2D ---------------------------------------------------------------------------
         /// <summary>Title screen: a single goose somewhere far away, muffled.</summary>
         public void PlayStart()
@@ -254,6 +264,7 @@ namespace GooseBrawl
         public void PlayGameOver()
         {
             StopGameOverHonks();
+            if (m_SpeakingSources.Count > 0) return;
             m_GameOverHonks = StartCoroutine(GameOverHonks());
         }
 

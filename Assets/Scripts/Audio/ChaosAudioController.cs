@@ -32,6 +32,15 @@ namespace GooseBrawl
         public bool flockAmbienceEnabled = false;
         [Range(0f, 1f)] public float flockVolume = 0.15f;
 
+        [Header("Surrounding goose spectators")]
+        public bool spectatorFlockEnabled = true;
+        [Range(0f, 1f)] public float spectatorVolume = 0.48f;
+        public int SpectatorCallCount { get; private set; }
+        readonly AudioSource[] m_Spectators = new AudioSource[5];
+        float m_NextSpectator, m_FlockTailUntil;
+        int m_NextSpectatorIndex;
+        bool m_FlockWasActive;
+
         [Header("Random goose flaps")]
         public float flapIntervalMin = 4f;
         public float flapIntervalMax = 9f;
@@ -55,6 +64,19 @@ namespace GooseBrawl
             // The flock is somewhere outside: dull it.
             var lp = m_Flock.gameObject.AddComponent<AudioLowPassFilter>();
             lp.cutoffFrequency = 2600f;
+            for (int i = 0; i < m_Spectators.Length; i++)
+            {
+                var s = m_Spectators[i] = MakeSource("Spectator" + i, null);
+                s.loop = false;
+                s.spatialBlend = 1f;
+                s.dopplerLevel = 0f;
+                s.minDistance = 3f;
+                s.maxDistance = 20f;
+                s.rolloffMode = AudioRolloffMode.Linear;
+                s.priority = 180;
+                var filter = s.gameObject.AddComponent<AudioLowPassFilter>();
+                filter.cutoffFrequency = 3200f;
+            }
         }
 
         AudioSource MakeSource(string name, AudioClip clip)
@@ -74,6 +96,7 @@ namespace GooseBrawl
         {
             var mgr = GooseGameManager.Instance;
             if (mgr == null) return;
+            UpdateSpectators(mgr);
             bool chase = mgr.ChaseActive && mgr.Goose != null && !mgr.IsPaused;
             float dt = Time.unscaledDeltaTime;
 
@@ -121,6 +144,39 @@ namespace GooseBrawl
                 goose.Visual.FeatherBurst(8);
                 goose.Visual.Procedural.TriggerHonkGesture();
             }
+        }
+
+        void UpdateSpectators(GooseGameManager mgr)
+        {
+            bool active = mgr.ChaseActive || (mgr.State == GooseGameState.EggStolen && mgr.Nest != null &&
+                mgr.Nest.Egg.CrackedEgg != null && mgr.Nest.Egg.CrackedEgg.activeSelf);
+            if (m_FlockWasActive && !active && mgr.State == GooseGameState.GameOver) m_FlockTailUntil = Time.unscaledTime + 3.5f;
+            if (active && !m_FlockWasActive) m_NextSpectator = Time.unscaledTime + 0.35f;
+            m_FlockWasActive = active;
+            bool tail = mgr.State == GooseGameState.GameOver && Time.unscaledTime < m_FlockTailUntil;
+            bool audible = spectatorFlockEnabled && (active || tail) && !mgr.IsPaused && !AudioListener.pause;
+            bool speaking = mgr.Goose != null && mgr.Goose.Voice != null && mgr.Goose.Voice.Speaking;
+            float level = audible ? spectatorVolume * (speaking ? 0.12f : 1f) * (mgr.Audio != null ? mgr.Audio.masterVolume : 1f) : 0f;
+            foreach (var s in m_Spectators)
+            {
+                if (s == null) continue;
+                s.volume = Mathf.MoveTowards(s.volume, level, Time.unscaledDeltaTime * (speaking ? 4f : 1.2f));
+                if (!audible && s.volume <= 0.001f) s.Stop();
+            }
+            if (!audible || mgr.Audio == null || Time.unscaledTime < m_NextSpectator) return;
+            var source = m_Spectators[m_NextSpectatorIndex];
+            // Calls answer from different directions around the room, never from the dialogue source.
+            float angle = m_NextSpectatorIndex * 72f + Random.Range(-18f, 18f);
+            m_NextSpectatorIndex = (m_NextSpectatorIndex + 2) % m_Spectators.Length;
+            source.transform.position = mgr.Player.Position + Quaternion.Euler(0f, angle, 0f) * Vector3.forward * Random.Range(5f, 8f) + Vector3.down * 0.6f;
+            if (mgr.Audio.PlaySpectatorCall(source, Random.Range(0.88f, 1.02f))) SpectatorCallCount++;
+            float intensity = mgr.Goose != null ? mgr.Goose.Danger01 : 0.2f;
+            m_NextSpectator = Time.unscaledTime + Random.Range(0.65f, 1.25f) * Mathf.Lerp(1.3f, 0.7f, intensity);
+        }
+
+        void OnDisable()
+        {
+            foreach (var s in m_Spectators) if (s != null) s.Stop();
         }
 
         void Begin()

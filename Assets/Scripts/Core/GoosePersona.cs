@@ -68,14 +68,14 @@ namespace GooseBrawl
         {
             Grudge++;
             LastTime = survival;
-            Save();
+            Save(false); // ScoreManager flushes the round together after the catch animation.
         }
 
         public void RecordWin(float survival)
         {
             Wins++;
             LastTime = survival;
-            Save();
+            Save(false); // ScoreManager flushes the round together after the catch animation.
         }
 
         public void RecordShout(string transcript)
@@ -95,7 +95,7 @@ namespace GooseBrawl
             return "HOLDING A GRUDGE SINCE ROUND ONE.";
         }
 
-        void Save()
+        void Save(bool flush = true)
         {
             PlayerPrefs.SetString(NameKey, Name);
             PlayerPrefs.SetString(TitleKey, Title);
@@ -104,7 +104,7 @@ namespace GooseBrawl
             PlayerPrefs.SetString(ShoutKey, LastShout);
             PlayerPrefs.SetFloat(LastTimeKey, LastTime);
             PlayerPrefs.SetInt(FemaleKey, Female ? 1 : 0);
-            PlayerPrefs.Save();
+            if (flush) PlayerPrefs.Save();
         }
     }
 }

@@ -97,6 +97,19 @@ namespace GooseBrawl
             yield return new WaitForSecondsRealtime(0.1f);
             Check(voice.SpokenCount == before + 1 && voice.Speaking, "Expired queue cannot stall later speech");
             voice.Interrupt();
+            voice.Say(clip, "FINISH THROUGH THE CUT", "test");
+            yield return new WaitForSecondsRealtime(0.1f);
+            float beforeCut = speech.time;
+            int micStarts = mgr.Yell.MicrophoneStarts;
+            mgr.Yell.EndListening();
+            voice.RoundEnded();
+            mgr.Audio.PlayGameOver();
+            yield return new WaitForSecondsRealtime(0.15f);
+            Check(voice.Speaking && speech.time > beforeCut, "Audible sentence continues through round end and result honks");
+            Check(mgr.Yell.MicrophoneStarts == micStarts, "Round end does not restart the microphone hardware");
+            yield return new WaitForSecondsRealtime(0.7f);
+            Check(!voice.Speaking, "Transition speech finishes naturally without lingering playback");
+            voice.Interrupt();
             Destroy(clip);
         }
 
@@ -111,7 +124,7 @@ namespace GooseBrawl
             Check(mgr.Player.HasCamera, "PlayerTracker sees a camera");
             Check(mgr.Environment.EnvironmentLayer > 0, "AREnvironment layer resolved (" + mgr.Environment.EnvironmentLayer + ")");
             Check(mgr.goosePrefab != null, "Goose prefab assigned");
-            Check(mgr.Chaos != null && !mgr.Chaos.flockAmbienceEnabled && !mgr.Chaos.breathingEnabled, "Uncaptioned flock/baby-like breathing layers disabled");
+            Check(mgr.Chaos != null && !mgr.Chaos.flockAmbienceEnabled && !mgr.Chaos.breathingEnabled, "Long field recordings and baby-like breathing remain disabled");
             Check(mgr.Audio.honkClip != null && mgr.Audio.whooshClip != null && mgr.Audio.BreathClip != null && mgr.Audio.HeartbeatClip != null, "Procedural audio clips generated");
             Check(mgr.Look != null, "CinematicLookController present");
             Check(mgr.Materials != null && mgr.Materials.ShadowCatcher != null, "Shadow catcher material available");
@@ -135,6 +148,7 @@ namespace GooseBrawl
             yield return WaitForState(mgr, GooseGameState.PlaceNest, 12f);
             Check(mgr.State == GooseGameState.PlaceNest, "Scan -> PlaceNest (floor found)");
             Check(mgr.GameplayAssetsWarm, "Procedural gameplay assets warm before placement");
+            Check(mgr.Nest != null && mgr.Nest.Egg.CrackPrepared, "Egg fragments and splash prepared before the drop");
             var breadIcon = FindAnyObjectByType<BreadIconRenderer>();
             Check(breadIcon != null && !breadIcon.Rendering, "Bread icon camera idle while button is hidden");
             yield return new WaitForSeconds(0.3f);
@@ -146,7 +160,12 @@ namespace GooseBrawl
             Check(mgr.State == GooseGameState.EggReady, "PlaceNest -> EggReady");
             Check(mgr.Nest != null && mgr.Nest.Egg != null && mgr.Nest.Egg.gameObject.activeSelf, "Nest + egg visible");
             Check(GameObject.Find("NestShadowCatcher") != null, "Shadow catcher under the nest");
+            var restingPos = mgr.Nest.Egg.transform.localPosition;
+            var restingRot = mgr.Nest.Egg.transform.localRotation;
             yield return new WaitForSeconds(0.4f);
+            Check(Vector3.Distance(restingPos, mgr.Nest.Egg.transform.localPosition) < 0.0001f && Quaternion.Angle(restingRot, mgr.Nest.Egg.transform.localRotation) < 0.01f, "Egg rests still in the nest without spinning or floating");
+            Check(Vector3.Angle(mgr.Nest.Egg.transform.up, Vector3.up) > 45f, "Egg rests on its side in the nest lining");
+            Check(mgr.GoosePrepared, "Goose instance and effects prepared before stealing the egg");
             yield return Shot("04_egg");
             // Close-up of the nest for the visual pass, then back to where we were.
             Vector3 nestPos = mgr.Nest.transform.position;
@@ -205,6 +224,7 @@ namespace GooseBrawl
             while (!goose.Glaring && goose.FlyingIn && t < 10f) { t += Time.deltaTime; yield return null; }
             Check(goose.Glaring, "Goose glares after landing");
             Check(goose.Visual.EffectsReady, "Dust, crumbs and feather systems prepared before chase");
+            Check(mgr.Chaos.spectatorFlockEnabled && mgr.Chaos.SpectatorCallCount > 0, "Surrounding flock answers with real goose calls during the entrance");
             Vector3 glarePos = goose.transform.position;
             yield return new WaitForSeconds(1.2f);
             Check(mgr.State == GooseGameState.EggStolen, "Chase has not started while the goose is unseen");
@@ -441,6 +461,13 @@ namespace GooseBrawl
             t = 0f;
             while (t < 3f && mgr.Share != null && mgr.Share.ShotCount == shotsBefore) { t += Time.unscaledDeltaTime; yield return null; }
             Check(mgr.Share != null && mgr.Share.ShotCount > shotsBefore, "Shutter captured the selfie");
+            Check(!SystemInfo.supportsAsyncGPUReadback || mgr.Share.LastCaptureAsync, "Capture uses asynchronous GPU readback when available");
+            if (mgr.Share.Shot != null)
+            {
+                var shot = mgr.Share.Shot;
+                Color stamp = shot.GetPixel(shot.width / 2, Mathf.RoundToInt(shot.height * 0.05f));
+                Check(stamp.r > 0.75f && stamp.g > 0.7f && stamp.b > 0.5f, "Saved photo has its cream stamp at the bottom, not upside down");
+            }
             mgr.OnPhotoFlipPressed();
             yield return new WaitForSecondsRealtime(0.1f);
             Check(!mgr.SelfieMode && !goose.SelfiePose && mgr.PhotoCameraReady, "FLIP restores rear camera and world pose");
