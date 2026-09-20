@@ -14,8 +14,8 @@ furniture the goose can be steered around. Sound on, volume up, haptics on.
 4. **Grab the egg.** Tap the egg (or **TAKE EGG**). "BREAKFAST TIME!", the egg flies into your hand ("GOT IT. LET'S GO COOK."),
    then it slips and drops in slow motion, cracking on the floor in front of you ("OOPS. THERE GOES BREAKFAST."):
    shell pieces, yolk and the white spreading on your floor. Keep looking where you are looking: "THE GOOSE HEARD THAT."
-5. **Here it comes.** The goose flies in low along your line of sight, wings beating (you feel each beat), squawking,
-   and lands 2-3 m in front of you. It stands there and glares at you. **It will not move until you have actually
+5. **Here it comes.** "HERE COMES KEVIN." The goose flies in low along your line of sight, wings beating (you feel each beat),
+   squawking, and lands 2-3 m in front of you. It stands there, glares at you and **speaks** (the subtitle pill shows the line). **It will not move until you have actually
    looked at it** — if you turned away, the edge locator (goose icon + arrow + distance) points to it.
 6. **TURN AROUND AND RUN!** Turn 180 degrees and walk or jog away, phone facing forward. The dark HUD shows the
    survival timer, honks, best, and the goose-o-meter; the locator sits on the screen edge in the goose's direction
@@ -25,6 +25,11 @@ furniture the goose can be steered around. Sound on, volume up, haptics on.
 8. **Turn the phone around.** The goose is right there in the room, casting a shadow on your floor, head locked on the
    camera. Walk around a wall or the couch: the goose steers around it instead of clipping through, and honks
    angrily when it has to reroute.
+8b. **Yell at it.** Shout at the phone ("GO AWAY, KEVIN!"). It flinches (feathers, RUDE.), backs off, then dashes back at you.
+    Two seconds later it answers what you actually said. Say out loud that it heard you.
+8c. **Bread.** When it is close, tap **BREAD** (bottom left). The roll flies past the goose, it detours, eats it (OM NOM., crumbs)
+    and comes back angrier with a dash. One roll per 20 s.
+8d. **Dodge.** When it crouches to lunge, sidestep half a metre: DODGED! (hit-stop, feathers) and a sore-loser line. DODGES count on the HUD.
 9. **Escalation.** After ~8 seconds the goose starts **flap-dashing**: short low hops that cover a couple of metres
    in a blink (it never lands closer than 1.8 m). The hops get more frequent, the animation faster, feathers start
    flying. After ~8 seconds of chase it can also **lunge** (crouch, flap, feathers, whoosh, big haptic, lens punch).
@@ -32,10 +37,17 @@ furniture the goose can be steered around. Sound on, volume up, haptics on.
 10. **Get caught.** Slow-motion tackle with a giant "HONK.", the picture desaturates, heavy haptic thud and rumble,
     then four sad descending honks and a random game-over title with your survival time, honks survived and best time.
     A new best gets a NEW BEST! stamp, a flock cheer and a success haptic.
-11. **Restart.** Tap **RUN AGAIN**: the egg is back in the same nest; the steal beat runs faster now and a tap skips ahead.
-    **MOVE NEST** lets you pick a new spot. Show that BEST persists.
+10b. **Or outlast it.** Survive 45 s and the goose gives up: THE GOOSE HAS GIVEN UP, it flops and sulks, the win card
+    ("YOU OUTLASTED KEVIN") and a sore-loser line. (`GooseGameManager.outlastSeconds` is the demo knob.)
+11. **Restart.** Tap **RUN AGAIN**: "KEVIN IS BACK." The goose remembers: the grudge line under the title, and its intro quotes
+    last time. The steal beat runs faster now and a tap skips ahead. **MOVE NEST** lets you pick a new spot. Show that BEST persists.
+12. **Sentry.** Open the `game.round` trace from the phone: phase spans, frame measurements, the Worker's `gen_ai.chat` span with
+    token counts and the ElevenLabs span in the same trace; then the Logs view filtered on `frame.spike` / `yell.`.
 
 Talking points while it runs:
+- The goose is a Cloudflare Agent: its memory (name, grudge, what you shouted) lives in a Durable Object; OpenAI writes every line;
+  ElevenLabs voices it; the phone falls back to an offline bank so the demo never depends on wifi.
+- Sentry is how we tuned it: the render benchmark, the frame-spike logs with goose/AR context, the adaptive quality ladder.
 - The goose is a real AR object in world space, not a UI overlay. It casts real shadows and reflects the real room
   (ARKit environment probes); the virtual light follows the room's brightness and colour temperature.
 - Every sound is something that exists in the room: real goose recordings, synthesized foley, your own heartbeat.

@@ -133,7 +133,7 @@ namespace GooseBrawl.Editor
                 var rp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(path);
                 if (rp == null) continue;
                 string n = Path.GetFileNameWithoutExtension(path);
-                Check(rp.msaaSampleCount == 4, n + ": MSAA 4x", "Run Setup Project");
+                Check(rp.msaaSampleCount == 2, n + ": MSAA 2x (phone budget)", "Run Setup Project");
                 Check(Mathf.Approximately(rp.renderScale, 1f), n + ": render scale 1.0", "Run Setup Project");
                 Check(rp.supportsMainLightShadows && rp.supportsSoftShadows, n + ": soft main light shadows", "Run Setup Project");
                 Check(rp.supportsCameraDepthTexture, n + ": depth texture", "Run Setup Project");
@@ -187,6 +187,23 @@ namespace GooseBrawl.Editor
             Check(honkClips > 0, "Real goose honk recordings present (" + honkClips + ")", "Procedural honks will be used", warnOnly: true);
             string audioSrc = File.Exists("Assets/Scripts/Audio/ProceduralAudio.cs") ? File.ReadAllText("Assets/Scripts/Audio/ProceduralAudio.cs") : "";
             Check(!audioSrc.Contains("ChaseLoop"), "No music loop in the audio code (design rule: diegetic only)", "Remove ChaseLoop");
+
+            // Voice, brain, yell, Sentry
+            Check(!string.IsNullOrEmpty(PlayerSettings.iOS.microphoneUsageDescription), "Microphone usage description set (yell at the goose)", "Run Setup Project / settings");
+            var ps = new SerializedObject(AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset")[0]);
+            var forceSpk = ps.FindProperty("Force IOS Speakers When Recording");
+            Check(forceSpk != null && forceSpk.boolValue, "Force iOS speakers when recording (goose stays loud while the mic listens)", "Run Setup Project / settings", warnOnly: true);
+            int voiceClips = AssetDatabase.IsValidFolder("Assets/Resources/GooseVoice") ? AssetDatabase.FindAssets("t:AudioClip", new[] { "Assets/Resources/GooseVoice" }).Length : 0;
+            int voiceLines = 0; foreach (var kv in GooseLines.Lines) voiceLines += kv.Value.Length;
+            Check(voiceClips >= voiceLines * 2, "Offline voice bank complete for both voices (" + voiceClips + "/" + voiceLines * 2 + " clips)", "cd backend/goose-brain && npm run pregen", warnOnly: true);
+            var urlAsset = AssetDatabase.LoadAssetAtPath<TextAsset>("Assets/Resources/GooseBrainUrl.txt");
+            Check(urlAsset != null && !urlAsset.text.Contains("YOUR-ACCOUNT") && urlAsset.text.Trim().StartsWith("https://"), "Goose brain Worker URL set (Assets/Resources/GooseBrainUrl.txt)", "wrangler deploy, then paste the workers.dev URL", warnOnly: true);
+            Check(PackagePresent("io.sentry.unity"), "Sentry Unity SDK installed", "Packages/manifest.json: io.sentry.unity", warnOnly: true);
+            var sentryOptions = AssetDatabase.LoadAssetAtPath<ScriptableObject>(GooseBrawlSetup.SentryOptionsPath);
+            bool sentryEnabled = false;
+            if (sentryOptions != null) { var so = new SerializedObject(sentryOptions); var en = so.FindProperty("<Enabled>k__BackingField"); var dsn = so.FindProperty("<Dsn>k__BackingField"); sentryEnabled = en != null && en.boolValue && dsn != null && !string.IsNullOrEmpty(dsn.stringValue); }
+            Check(sentryEnabled, "Sentry enabled with a DSN (tracing, logs, perf harness)", "Put the DSN in ./sentry.dsn and run Goose Brawl > Configure Sentry", warnOnly: true);
+            Check(PlayerSettings.enableFrameTimingStats, "Frame timing stats enabled (PerfProbe GPU/CPU timings in release builds)", "Run Setup Project / settings", warnOnly: true);
 
             sb.AppendLine("------------------------------------------------------");
             sb.Append(failures == 0 ? "RESULT: READY" : "RESULT: " + failures + " problem(s)").Append("  (").Append(warnings).AppendLine(" warning(s))");

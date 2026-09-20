@@ -19,6 +19,8 @@ namespace GooseBrawl
         public float heartbeatStart = 0.25f;
 
         [Header("Breathing")]
+        [Tooltip("The synthesized panting loop. Off: it read as a random squeaky creature once the goose could talk.")]
+        public bool breathingEnabled = false;
         [Range(0f, 1f)] public float breathVolume = 0.3f;
         public float breathPitchCalm = 0.9f;
         public float breathPitchPanic = 1.5f;
@@ -104,7 +106,7 @@ namespace GooseBrawl
             // Breathing: builds with time on the run, panics with danger.
             float stamina = Mathf.Clamp01((chaseTime - breathStartTime) / 20f);
             float breathLevel = Mathf.Clamp01(stamina * 0.6f + m_Danger * 0.6f);
-            Fade(m_Breath, breathVolume * breathLevel * master * scale, dt * 1f);
+            Fade(m_Breath, breathingEnabled ? breathVolume * breathLevel * master * scale : 0f, dt * 1f);
             m_Breath.pitch = Mathf.Lerp(breathPitchCalm, breathPitchPanic, breathLevel) * (slowMo ? 0.75f : 1f);
 
             // Distant flock: rage mode only.
@@ -126,7 +128,7 @@ namespace GooseBrawl
             m_Danger = 0f;
             m_NextFlap = Time.time + Random.Range(2f, 4f);
             m_NextBeat = Time.unscaledTime + 0.3f;
-            Play(m_Breath);
+            if (breathingEnabled) Play(m_Breath);
             Play(m_Flock);
         }
 

@@ -72,6 +72,8 @@ namespace GooseBrawl
             Check(mgr.Look != null, "CinematicLookController present");
             Check(mgr.Materials != null && mgr.Materials.ShadowCatcher != null, "Shadow catcher material available");
             Check(mgr.State == GooseGameState.Boot, "Starts in Boot");
+            bool online = UnityEditor.SessionState.GetBool("GooseBrawl.SmokeOnline", false);
+            if (mgr.Brain != null) mgr.Brain.forceOffline = !online; // deterministic by default: bank voice, no network ('smokeonline' uses wrangler dev)
             yield return Shot("01_title");
 
             // First launch shows the coaching card; dismiss it through the manager path.
@@ -169,6 +171,7 @@ namespace GooseBrawl
             Check(GameObject.Find("GooseShadowCatcher") != null, "Shadow catcher follows the goose");
             yield return Shot("07_chase_start");
 
+
             // Turn around and run away, sidestepping so the wide crate ends up between goose and player.
             mgr.Mock.AutoTurn = 225f;
             yield return new WaitForSeconds(0.8f);
@@ -224,6 +227,7 @@ namespace GooseBrawl
             Check(visible || goose.DistanceToPlayer < 1.2f, "Goose visible after turning back");
             yield return Shot("09_chase_front");
 
+
             // Escalation window: put the player on open floor 5 m from the goose, facing it, and wait for a flap-dash.
             Vector3 gpos = goose.transform.position;
             Vector3 openDir = Vector3.left; // the mock room is open toward -x
@@ -252,6 +256,42 @@ namespace GooseBrawl
             Check(goose.DashCount > dashesBefore, "Flap-dash happened once tier 1 began (dashes=" + goose.DashCount + ", tier=" + goose.Tier + ", waited " + t.ToString("F1") + " s)");
             Check(m_MaxSpeed <= 1.8f, "Real speed stayed gentle (max " + m_MaxSpeed.ToString("F2") + " m/s)");
 
+            // Bread (thrown when the goose is close): it lands beyond the goose, the goose detours and eats, then comes back angrier.
+            t = 0f;
+            while (t < 6f && mgr.ChaseActive && (goose.State == GooseState.Dash || goose.State == GooseState.JumpAttack)) { t += Time.deltaTime; yield return null; }
+            mgr.OnBreadPressed();
+            Check(mgr.BreadsThrown == 1, "Bread thrown (HUD button / B key)");
+            t = 0f;
+            bool breadEating = false, breadEaten = false;
+            while (t < 14f && mgr.ChaseActive)
+            {
+                t += Time.deltaTime;
+                if (!breadEating && goose.State == GooseState.Eating)
+                {
+                    breadEating = true;
+                    yield return new WaitForSeconds(0.7f);
+                    mgr.Mock.LookAt(goose.transform.position + Vector3.up * 0.3f);
+                    yield return Shot("07b_bread");
+                }
+                if (goose.BreadsEaten > 0) { breadEaten = true; break; }
+                yield return null;
+            }
+            Check(breadEating, "Goose went for the bread (Eating observed after " + t.ToString("F1") + " s)");
+            Check(breadEaten && goose.Anger >= 1, "Goose finished the bread and got angrier (eaten=" + goose.BreadsEaten + ", anger=" + goose.Anger + ", tier=" + goose.Tier + ")");
+
+            // Yell: the goose flinches, then the reply line plays (bank line when the brain is offline).
+            t = 0f;
+            while (t < 4f && goose.State != GooseState.Walk && goose.State != GooseState.Run && goose.State != GooseState.Idle) { t += Time.deltaTime; yield return null; }
+            int spokenBefore = goose.Voice != null ? goose.Voice.SpokenCount : 0;
+            mgr.Yell.SimulateYell();
+            yield return null;
+            Check(goose.State == GooseState.Flinched, "Goose flinched at the shout (state=" + goose.State + ")");
+            yield return new WaitForSeconds(0.5f);
+            yield return Shot("08c_yell");
+            t = 0f;
+            while (t < 6f && goose.Voice != null && goose.Voice.SpokenCount == spokenBefore) { t += Time.deltaTime; yield return null; }
+            Check(goose.Voice != null && goose.Voice.SpokenCount > spokenBefore, "Goose answered the shout (spoken=" + (goose.Voice != null ? goose.Voice.SpokenCount : 0) + ")");
+
             t = 0f;
             while (mgr.State != GooseGameState.GameOver && t < 40f)
             {
@@ -272,12 +312,48 @@ namespace GooseBrawl
             foreach (var s in FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
                 if (s.isPlaying && s.clip != null && (s.clip.name.Contains("Chase") || s.clip.name.Contains("Music") || s.clip.name.Contains("Loop") && !s.clip.name.Contains("WingBeat") && !s.clip.name.Contains("Breath"))) music = true;
             Check(!music, "No music playing (design rule)");
+            Check(!string.IsNullOrEmpty(mgr.Persona.Name), "Goose has a name (" + mgr.Persona.Name + ", " + mgr.Persona.Title + ", from " + mgr.Persona.Source + ")");
+            Check(goose.Voice != null && goose.Voice.SpokenCount >= 3, "Goose spoke its beats (spoken=" + (goose.Voice != null ? goose.Voice.SpokenCount : 0) + ", fallbacks=" + (goose.Voice != null ? goose.Voice.FallbackCount : 0) + ")");
+            Check(mgr.Perf != null && mgr.Perf.LastRoundStats != null && mgr.Perf.LastRoundStats.Frames > 0, "PerfProbe captured the round (" + (mgr.Perf != null && mgr.Perf.LastRoundStats != null ? mgr.Perf.LastRoundStats.Summary() : "none") + ")");
+            Check(GooseTelemetry.Compiled, "Sentry SDK compiled in (GOOSE_SENTRY)");
+            Check(GooseTelemetry.Enabled, "Sentry SDK initialised with the DSN (round transaction, logs and metrics are being sent)");
+            Check(mgr.Brain != null && mgr.Brain.Configured, "Goose brain URL configured (" + (mgr.Brain != null ? mgr.Brain.brainBaseUrl : "none") + ")");
 
             yield return new WaitForSecondsRealtime(2.5f);
             yield return Shot("12_gameover");
             mgr.OnRunAgainPressed();
             yield return null;
             Check(mgr.State == GooseGameState.EggReady, "Run again -> EggReady");
+
+            // Round 2: outlast the goose (short timer) -> the win card with the sore-loser line.
+            mgr.outlastSeconds = 6f;
+            mgr.OnStealEggPressed();
+            yield return null;
+            mgr.RequestSkip();
+            mgr.Mock.AutoMove = new Vector2(1f, 0f);
+            t = 0f;
+            while (mgr.Goose == null && t < 20f) { t += Time.deltaTime; if (mgr.State == GooseGameState.EggStolen) mgr.RequestSkip(); yield return null; }
+            mgr.Mock.AutoMove = Vector2.zero;
+            var goose2 = mgr.Goose;
+            Check(goose2 != null && goose2 != goose, "Second goose spawned for round 2");
+            t = 0f;
+            while (!mgr.ChaseActive && t < 25f)
+            {
+                t += Time.deltaTime;
+                if (goose2 != null) mgr.Mock.LookAt(goose2.transform.position + Vector3.up * 0.45f);
+                yield return null;
+            }
+            Check(mgr.ChaseActive, "Round 2 chase started");
+            if (goose2 != null) goose2.NoCatch = true;
+            t = 0f;
+            while (mgr.State != GooseGameState.GameOver && t < 25f) { t += Time.deltaTime; yield return null; }
+            Check(mgr.State == GooseGameState.GameOver && mgr.LastRoundWon, "Outlasted the goose -> win (after " + t.ToString("F1") + " s)");
+            yield return new WaitForSecondsRealtime(3.2f);
+            yield return Shot("13_outlasted");
+            Check(goose2 != null && goose2.State == GooseState.GameOver, "Goose gave up (terminal state)");
+            mgr.OnRunAgainPressed();
+            yield return null;
+            Check(mgr.State == GooseGameState.EggReady, "Run again after the win -> EggReady");
             Finish();
         }
 

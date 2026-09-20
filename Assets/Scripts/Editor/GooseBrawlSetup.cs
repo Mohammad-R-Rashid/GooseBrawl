@@ -31,6 +31,7 @@ namespace GooseBrawl.Editor
         public const string PostFXProfilePath = "Assets/Settings/GoosedPostFX.asset";
         public const string AppIconPath = "Assets/Art/Generated/AppIcon.png";
         public const string CameraUsageDescription = "GOOSED. uses the camera to put the goose in your room.";
+        public const string MicrophoneUsageDescription = "GOOSED. listens for you yelling at the goose.";
         public const string BundleId = "com.goosebrawl.eggsnatcher"; // unchanged on purpose: keeps saved best times on installed devices
 
         [MenuItem("Goose Brawl/Setup Project", false, 1)]
@@ -66,7 +67,7 @@ namespace GooseBrawl.Editor
 
         public const string BuildFolder = "Builds/iOS";
 
-        [MenuItem("Goose Brawl/Build iOS Xcode Project (Development)", false, 22)]
+        [MenuItem("Goose Brawl/Build iOS Xcode Project (Release)", false, 22)]
         public static void BuildIOS()
         {
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.iOS)
@@ -85,7 +86,7 @@ namespace GooseBrawl.Editor
                 scenes = new[] { ScenePath },
                 locationPathName = BuildFolder,
                 target = BuildTarget.iOS,
-                options = BuildOptions.Development
+                options = BuildOptions.None // release: no development console overlay, no profiler hooks, optimized IL2CPP
             };
             Debug.Log("[Goose Brawl] Building iOS Xcode project to " + BuildFolder + " ...");
             var report = BuildPipeline.BuildPlayer(options);
@@ -104,6 +105,7 @@ namespace GooseBrawl.Editor
 
                 EnsureLayers();
                 ConfigurePlayerSettings();
+                ConfigureSentry();
                 ConfigureXRManagement();
                 ConfigureURPRendererFeature();
                 var postProfile = ConfigureRenderPipeline();
@@ -232,6 +234,10 @@ namespace GooseBrawl.Editor
             PlayerSettings.runInBackground = true; // keeps Editor play mode (and the smoke test) running when unfocused
             var ios = NamedBuildTarget.iOS;
             PlayerSettings.iOS.cameraUsageDescription = CameraUsageDescription;
+            PlayerSettings.iOS.microphoneUsageDescription = MicrophoneUsageDescription;
+            PlayerSettings.enableFrameTimingStats = true; // PerfProbe reads FrameTimingManager in release builds too
+            PlayerSettings.insecureHttpOption = InsecureHttpOption.DevelopmentOnly; // the Editor / dev build may talk to wrangler dev on http://localhost
+            ConfigureIOSRecordingFlags();
             PlayerSettings.iOS.targetOSVersionString = "16.0";
             PlayerSettings.iOS.targetDevice = iOSTargetDevice.iPhoneAndiPad;
             PlayerSettings.iOS.requiresPersistentWiFi = false;
@@ -247,6 +253,96 @@ namespace GooseBrawl.Editor
             PlayerSettings.allowedAutorotateToLandscapeRight = false;
             PlayerSettings.SetApiCompatibilityLevel(ios, ApiCompatibilityLevel.NET_Standard);
             Debug.Log("[Goose Brawl] Player settings configured (" + ProductName + ", portrait, camera usage description, IL2CPP/ARM64, iOS 16+).");
+        }
+
+        /// <summary>
+        /// Not public API: 'Force IOS Speakers When Recording' keeps the goose on the loudspeaker while the yell detector
+        /// records; 'Prepare IOS For Recording' stays off so the title screen is not routed through the play-and-record session.
+        /// </summary>
+        public static void ConfigureIOSRecordingFlags()
+        {
+            var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
+            if (assets == null || assets.Length == 0) return;
+            var so = new SerializedObject(assets[0]);
+            var force = so.FindProperty("Force IOS Speakers When Recording");
+            var prepare = so.FindProperty("Prepare IOS For Recording");
+            if (force != null) force.boolValue = true;
+            if (prepare != null) prepare.boolValue = false;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            Debug.Log("[Goose Brawl] iOS recording flags: force speakers=" + (force != null) + ", prepare=off");
+        }
+
+        /// <summary>GOOSE_SENTRY is defined only while the Sentry package is actually resolved, so the project always compiles.</summary>
+        public static void EnsureSentryDefine()
+        {
+            bool present = false;
+            try { foreach (var p in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages()) if (p.name == "io.sentry.unity") { present = true; break; } }
+            catch (Exception e) { Debug.LogWarning("[Goose Brawl] Package query failed: " + e.Message); return; }
+            foreach (var target in new[] { NamedBuildTarget.iOS, NamedBuildTarget.Standalone, NamedBuildTarget.Android })
+            {
+                string defines = PlayerSettings.GetScriptingDefineSymbols(target);
+                var list = defines.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+                bool has = list.Contains("GOOSE_SENTRY");
+                if (present == has) continue;
+                if (present) list.Add("GOOSE_SENTRY"); else list.Remove("GOOSE_SENTRY");
+                PlayerSettings.SetScriptingDefineSymbols(target, string.Join(";", list));
+                Debug.Log("[Goose Brawl] GOOSE_SENTRY define " + (present ? "added" : "removed") + " for " + target.TargetName);
+            }
+        }
+
+        public const string SentryOptionsPath = "Assets/Resources/Sentry/SentryOptions.asset";
+        public const string SentryConfigPath = "Assets/Resources/Sentry/GooseSentryOptions.asset";
+        public const string SentryDsnFile = "sentry.dsn";
+
+        /// <summary>
+        /// Writes the Sentry SDK options asset from the DSN in ./sentry.dsn (or GOOSED_SENTRY_DSN). Equivalent to filling in
+        /// Tools > Sentry by hand: enabled, capture in Editor, traces 100%, iOS native on, our options-configuration script.
+        /// No symbol upload (no SentryCliOptions asset), so the Xcode build never needs network.
+        /// </summary>
+        [MenuItem("Goose Brawl/Configure Sentry", false, 3)]
+        public static void ConfigureSentry()
+        {
+#if GOOSE_SENTRY
+            string dsn = Environment.GetEnvironmentVariable("GOOSED_SENTRY_DSN");
+            if (string.IsNullOrEmpty(dsn) && File.Exists(SentryDsnFile)) dsn = File.ReadAllText(SentryDsnFile).Trim();
+            dsn = dsn ?? "";
+            EnsureFolder("Assets/Resources/Sentry");
+
+            var config = AssetDatabase.LoadAssetAtPath<GooseSentryOptions>(SentryConfigPath);
+            if (config == null)
+            {
+                config = ScriptableObject.CreateInstance<GooseSentryOptions>();
+                AssetDatabase.CreateAsset(config, SentryConfigPath);
+            }
+            var options = AssetDatabase.LoadAssetAtPath<Sentry.Unity.ScriptableSentryUnityOptions>(SentryOptionsPath);
+            if (options == null)
+            {
+                options = ScriptableObject.CreateInstance<Sentry.Unity.ScriptableSentryUnityOptions>();
+                AssetDatabase.CreateAsset(options, SentryOptionsPath);
+            }
+            var so = new SerializedObject(options);
+            void SetBool(string name, bool v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) p.boolValue = v; else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
+            void SetString(string name, string v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) p.stringValue = v; else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
+            void SetFloat(string name, float v) { var p = so.FindProperty("<" + name + ">k__BackingField"); if (p != null) { if (p.propertyType == SerializedPropertyType.Float) p.floatValue = v; } else Debug.LogWarning("[Goose Brawl] Sentry option missing: " + name); }
+            SetBool("Enabled", !string.IsNullOrEmpty(dsn));
+            SetString("Dsn", dsn);
+            SetBool("CaptureInEditor", true);
+            SetFloat("TracesSampleRate", 1f);
+            SetBool("Debug", true);
+            SetBool("DebugOnlyInEditor", true);
+            SetString("ReleaseOverride", "goosed@1.0.0");
+            SetBool("IosNativeSupportEnabled", true);
+            SetBool("AutoStartupTraces", true);
+            SetBool("AutoSceneLoadTraces", true);
+            var cfg = so.FindProperty("<OptionsConfiguration>k__BackingField");
+            if (cfg != null) cfg.objectReferenceValue = config;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(options);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[Goose Brawl] Sentry options written: " + (string.IsNullOrEmpty(dsn) ? "DISABLED (no DSN in " + SentryDsnFile + ")" : "enabled, DSN set") + ".");
+#else
+            Debug.LogWarning("[Goose Brawl] Sentry package not resolved (GOOSE_SENTRY undefined); nothing to configure.");
+#endif
         }
 
         public static void ConfigureXRManagement()
@@ -318,7 +414,7 @@ namespace GooseBrawl.Editor
         }
 
         /// <summary>
-        /// Pipeline quality for a mature AR look: full render scale, MSAA 4x (alpha-to-coverage on the feather cards),
+        /// Pipeline quality for a mature AR look on a phone: full render scale, MSAA 2x (alpha-to-coverage on the feather cards),
         /// soft shadows at 2048, depth texture, and the post-processing profile asset. Every URP asset under Assets/ gets it,
         /// so the Editor (PC) and the phone (Mobile) look the same.
         /// </summary>
@@ -332,11 +428,11 @@ namespace GooseBrawl.Editor
                 var rp = AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>(path);
                 if (rp == null) continue;
                 rp.renderScale = 1f;
-                rp.msaaSampleCount = 4;
+                rp.msaaSampleCount = 2;
                 rp.supportsCameraDepthTexture = true;
                 rp.supportsHDR = true;
-                rp.mainLightShadowmapResolution = 2048;
-                rp.shadowDistance = 10f;
+                rp.mainLightShadowmapResolution = 1024;
+                rp.shadowDistance = 8f;
                 rp.shadowCascadeCount = 1;
                 rp.shadowDepthBias = 1f;
                 rp.shadowNormalBias = 0.8f;
@@ -429,16 +525,19 @@ namespace GooseBrawl.Editor
         /// <summary>Honks: PCM (tiny, no decode cost). Flock recording: streamed (was 11 MB of PCM decompressed at startup).</summary>
         public static void ConfigureAudioImports()
         {
-            foreach (var guid in AssetDatabase.FindAssets("t:AudioClip", new[] { "Assets/Resources/GooseAudio" }))
+            var audioFolders = new System.Collections.Generic.List<string> { "Assets/Resources/GooseAudio" };
+            if (AssetDatabase.IsValidFolder("Assets/Resources/GooseVoice")) audioFolders.Add("Assets/Resources/GooseVoice");
+            foreach (var guid in AssetDatabase.FindAssets("t:AudioClip", audioFolders.ToArray()))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
                 var importer = AssetImporter.GetAtPath(path) as AudioImporter;
                 if (importer == null) continue;
                 var settings = importer.defaultSampleSettings;
                 bool longClip = path.EndsWith(".mp3") || path.Contains("yellowstone");
+                bool voice = path.Contains("/GooseVoice/"); // 168 spoken lines: Vorbis keeps the bank small, decompressed on load
                 var wantLoad = longClip ? AudioClipLoadType.Streaming : AudioClipLoadType.DecompressOnLoad;
-                var wantFormat = longClip ? AudioCompressionFormat.Vorbis : AudioCompressionFormat.PCM;
-                float wantQuality = longClip ? 0.6f : 1f;
+                var wantFormat = longClip || voice ? AudioCompressionFormat.Vorbis : AudioCompressionFormat.PCM;
+                float wantQuality = longClip ? 0.6f : (voice ? 0.7f : 1f);
                 bool changed = settings.loadType != wantLoad || settings.compressionFormat != wantFormat || Mathf.Abs(settings.quality - wantQuality) > 0.01f;
                 if (importer.forceToMono != !longClip) { importer.forceToMono = !longClip; changed = true; }
                 if (importer.loadInBackground != longClip) { importer.loadInBackground = longClip; changed = true; }
@@ -547,6 +646,7 @@ namespace GooseBrawl.Editor
         static GooseBrawlAutoSetup()
         {
             EditorApplication.delayCall += TryRun;
+            EditorApplication.delayCall += GooseBrawlSetup.EnsureSentryDefine;
         }
 
         static void TryRun()

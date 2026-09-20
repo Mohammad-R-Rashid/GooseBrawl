@@ -405,6 +405,78 @@ namespace GooseBrawl
         }
 
         /// <summary>Cream egg shell with brown speckles.</summary>
+        /// <summary>Golden bread crust: baked-brown value noise, darker toward the rim, a little flour on top.</summary>
+        public static Texture2D CrustTexture(int size = 256)
+        {
+            return Cached("BreadCrust", () =>
+            {
+                var tex = NewTexture("BreadCrust", size, size, true, TextureWrapMode.Repeat);
+                var px = new Color[size * size];
+                Color light = new Color(0.90f, 0.70f, 0.42f), mid = new Color(0.74f, 0.48f, 0.22f), dark = new Color(0.50f, 0.28f, 0.10f), flour = new Color(0.96f, 0.92f, 0.82f);
+                for (int y = 0; y < size; y++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        float u = x / (float)size, v = y / (float)size;
+                        float bake = ValueNoise(u * 6f, v * 6f, 33) * 0.6f + ValueNoise(u * 18f, v * 18f, 34) * 0.4f;
+                        // v runs bottom (0) to top (1) of the roll: the top bakes darker, the base stays pale.
+                        float rim = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((v - 0.35f) / 0.5f));
+                        Color c = Color.Lerp(light, mid, bake);
+                        c = Color.Lerp(c, dark, rim * 0.55f * (0.5f + 0.5f * bake));
+                        float dust = ValueNoise(u * 40f, v * 40f, 35);
+                        if (v > 0.8f && dust > 0.72f) c = Color.Lerp(c, flour, (dust - 0.72f) * 2.2f);
+                        // Tiny pores.
+                        float pore = ValueNoise(u * 90f, v * 90f, 36);
+                        if (pore > 0.86f) c *= 0.85f;
+                        px[y * size + x] = c;
+                    }
+                tex.SetPixels(px);
+                tex.Apply(true, false);
+                return tex;
+            });
+        }
+
+        /// <summary>A dinner roll: flat-bottomed lathe dome with a lumpy rim, pivot at the base centre.</summary>
+        public static Mesh BreadRollMesh(string name, float width, float height, int seed)
+        {
+            var rnd = new System.Random(seed);
+            float bump = 0.06f + (float)rnd.NextDouble() * 0.05f;
+            float r0 = width * 0.5f;
+            float Radius(float v)
+            {
+                // Base sits on a small flat, the body bulges out, the top rounds off like a risen bun.
+                float body = Mathf.Sqrt(Mathf.Max(0f, 1f - Mathf.Pow((v - 0.42f) / 0.62f, 2f)));
+                float flat = Mathf.SmoothStep(0.72f, 1f, Mathf.Clamp01(v / 0.12f));
+                float lump = 1f + bump * Mathf.Sin(v * 9f + seed) * Mathf.Sin(v * 3.1f);
+                return r0 * Mathf.Max(0.02f, body * flat * lump);
+            }
+            return LatheMesh(name, Radius, height, 28, 18, 0f, 1f, 0f, 360f, true, false);
+        }
+
+        /// <summary>Crumbs flying off a bread roll as the goose pecks: tiny warm specks, short-lived.</summary>
+        public static ParticleSystem CreateCrumbPuff(Transform parent, Material mat)
+        {
+            var ps = NewParticleSystem("Crumbs", parent, mat);
+            var main = ps.main;
+            main.duration = 0.5f;
+            main.loop = false;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.6f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.5f, 1.3f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.012f, 0.03f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            main.startColor = new Color(0.85f, 0.62f, 0.34f, 0.95f);
+            main.gravityModifier = 0.9f;
+            main.maxParticles = 40;
+            var emission = ps.emission;
+            emission.rateOverTime = 0f;
+            emission.SetBursts(new[] { new ParticleSystem.Burst(0f, (short)5) });
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 40f;
+            shape.radius = 0.02f;
+            FadeOut(ps, 0.9f, 0.3f);
+            return ps;
+        }
+
         public static Texture2D SpeckleTexture(int size = 256)
         {
             return Cached("EggSpeckle", () =>

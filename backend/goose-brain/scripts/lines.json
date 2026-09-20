@@ -1,0 +1,120 @@
+{
+  "personas": [
+    { "name": "KEVIN", "title": "DESTROYER OF BREAKFAST", "voice": "male" },
+    { "name": "BRENDA", "title": "SHE KNOWS WHAT YOU DID", "voice": "female" },
+    { "name": "GARY", "title": "JUST GARY.", "voice": "male" },
+    { "name": "MARGARET", "title": "MOTHER OF ONE. FORMERLY.", "voice": "female" },
+    { "name": "DR. HONK", "title": "PHD IN PAIN", "voice": "male" },
+    { "name": "AGNES", "title": "BANNED FROM THREE PARKS", "voice": "female" },
+    { "name": "LORD FEATHERINGTON", "title": "OF THE POND", "voice": "male" },
+    { "name": "PAMELA", "title": "YOUR LANDLORD NOW", "voice": "female" },
+    { "name": "STEVE", "title": "LOCAL MENACE", "voice": "male" },
+    { "name": "CHAD", "title": "HAS NEVER LOST", "voice": "male" },
+    { "name": "DUKE", "title": "THE FLAPPENING", "voice": "male" },
+    { "name": "BARRY", "title": "HONK FIRST, ASK NEVER", "voice": "male" }
+  ],
+  "beats": {
+    "intro": [
+      "MY EGG. MY FLOOR. YOUR PROBLEM.",
+      "[sighs] YOU DROPPED IT. YOU DROPPED IT.",
+      "BREAKFAST? I'LL SHOW YOU BREAKFAST.",
+      "I FLEW HERE FOR THIS. FOR YOU. RUN.",
+      "THAT WAS MY CHILD. PROBABLY. RUN.",
+      "NICE ROOM. SHAME ABOUT WHAT HAPPENS NEXT.",
+      "[whispers] I CAN SMELL THE YOLK ON YOU.",
+      "HELLO. I AM THE CONSEQUENCES.",
+      "YOU HAVE LEGS. USE THEM. I'M COUNTING.",
+      "ONE EGG. ONE CHASE. NO REFUNDS."
+    ],
+    "intro_again": [
+      "OH. IT'S YOU AGAIN. RUN FASTER THIS TIME.",
+      "YOU AGAIN. NOT FORGIVEN. NOT FORGOTTEN.",
+      "[sighs] BACK FOR MORE. HOW BRAVE. HOW DUMB.",
+      "WE MEET AGAIN. STILL MAD, BY THE WAY.",
+      "I REMEMBER YOU. I REMEMBER EVERYTHING.",
+      "SAME EGG. SAME YOU. SAME ENDING.",
+      "[laughs] YOU CAME BACK. TO ME. ADORABLE.",
+      "THE GRUDGE IS RESTED AND READY. ARE YOU?"
+    ],
+    "taunt10": [
+      "TEN SECONDS. I'VE SEEN BREAD LAST LONGER.",
+      "[laughs] IS THAT YOUR RUNNING? ADORABLE.",
+      "I HAVE ALL DAY. YOU HAVE LEGS. BARELY.",
+      "YOUR SHOES ARE UNTIED. MADE YOU LOOK.",
+      "TEN SECONDS. THE EGG LASTED LONGER.",
+      "KEEP GOING. I LIKE THE CHASE. YOU DON'T.",
+      "[sarcastic] WOW. SO FAST. TRULY A GAZELLE.",
+      "YOU RUN LIKE THE EGG ROLLED. BADLY.",
+      "IS THIS A JOG? I THOUGHT IT WAS A CHASE.",
+      "I'M NOT EVEN FLAPPING YET."
+    ],
+    "yell": [
+      "[sarcastic] OH NO. WORDS. I'M SHAKING.",
+      "RUDE. I ONLY SPEAK GOOSE. LOUDER.",
+      "YELL ALL YOU WANT. THE EGG IS STILL BROKEN.",
+      "WAS THAT A THREAT? FROM A PERSON? CUTE.",
+      "I HEARD THAT. THE WHOLE POND HEARD THAT.",
+      "[laughs] YOU YELLED. I FLINCHED. NEVER AGAIN.",
+      "USE YOUR INSIDE VOICE. I'M INSIDE. I DON'T CARE.",
+      "NOISE DOESN'T FIX EGGS. I CHECKED.",
+      "BIG VOICE. SMALL LEGS. I'VE NOTICED.",
+      "OKAY. NOW I'M YELLING TOO. HONK."
+    ],
+    "bread": [
+      "CARBS. NICE TRY. STILL FURIOUS.",
+      "[excited] BREAD! ...WAIT. THIS CHANGES NOTHING.",
+      "MMM. CRUSTY. NOW WHERE WAS I. OH RIGHT. YOU.",
+      "YOU THINK I CAN BE BOUGHT? ...CONTINUE.",
+      "A ROLL. FOR AN EGG. THE MATH IS INSULTING.",
+      "DELICIOUS. IRRELEVANT. RUN.",
+      "[sighs] FINE. I ATE IT. I'M NOT PROUD.",
+      "BRIBERY. NOTED. ALSO, MORE PLEASE. LATER.",
+      "THAT WAS THE APPETIZER. YOU'RE THE MAIN.",
+      "I'M FULL OF BREAD AND RAGE NOW. THANKS."
+    ],
+    "dodge": [
+      "LUCKY. THAT WAS A PRACTICE LUNGE.",
+      "[sighs] FINE. I MISSED. IT WON'T HAPPEN TWICE.",
+      "OH, YOU CAN MOVE. GOOD. MORE FUN FOR ME.",
+      "I MEANT TO DO THAT. FOR SUSPENSE.",
+      "THE FLOOR MOVED. I'M SURE OF IT.",
+      "[laughs] CUTE STEP. I'VE GOT NINETY MORE LUNGES.",
+      "DODGED? OR JUST FELL OVER GRACEFULLY?",
+      "THAT ONE WAS FOR THE CAMERA. THIS ONE ISN'T.",
+      "YOU MOVED. HOW DARE YOU.",
+      "NOTED. NEXT TIME I AIM FOR THE SHOES."
+    ],
+    "rage": [
+      "THAT'S IT. NO MORE MISTER NICE GOOSE.",
+      "RAGE MODE. THAT IS NOT A METAPHOR.",
+      "I AM THE STORM. THE STORM HAS FEATHERS.",
+      "THIRTY SECONDS OF PATIENCE. IT'S GONE.",
+      "I HAVE CALLED MY COUSINS. THEY'RE WORSE.",
+      "YOU DID THIS. REMEMBER THAT.",
+      "[laughs] NO MORE WARM-UP. THIS IS THE ACTUAL GOOSE.",
+      "FEATHERS UP. MANNERS DOWN."
+    ],
+    "caught": [
+      "[laughs] GOT YOU. TELL YOUR FRIENDS.",
+      "BREAKFAST IS CANCELLED. FOREVER.",
+      "SAY IT. SAY I'M THE BEST GOOSE. SAY IT.",
+      "AND THAT'S HOW EGGS ARE AVENGED.",
+      "YOU RAN. I FLEW. THAT'S THE WHOLE STORY.",
+      "[sighs] SO EASY. I ALMOST FEEL BAD. ALMOST.",
+      "TAG. YOU'RE BREAKFAST.",
+      "GOOSE ONE. YOU ZERO. AGAIN.",
+      "THIS IS WHAT HAPPENS. THIS IS ALWAYS WHAT HAPPENS.",
+      "I'D SAY GOOD GAME. I WON'T."
+    ],
+    "outlasted": [
+      "[sighs] FINE. KEEP YOUR STUPID LEGS.",
+      "I LET YOU WIN. OBVIOUSLY. I'M TIRED, THAT'S ALL.",
+      "THIS ISN'T OVER. I KNOW WHERE YOU LIVE. IT'S HERE.",
+      "MY KNEES. YOU HAVE NO IDEA. NEXT TIME.",
+      "[laughs] THAT DOESN'T COUNT. I WASN'T READY.",
+      "CONGRATULATIONS. YOU OUTRAN A BIRD. FRAME IT.",
+      "I QUIT. FOR NOW. THE EGG STILL COUNTS.",
+      "GO. ENJOY YOUR LEGS. I'LL BE HERE."
+    ]
+  }
+}

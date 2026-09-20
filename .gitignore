@@ -42,3 +42,11 @@ sysinfo.txt
 *.unitypackage
 *.app
 crashlytics-build.properties
+
+# Sentry DSN for Goose Brawl > Configure Sentry (the DSN itself lives in Assets/Resources/Sentry/SentryOptions.asset)
+/sentry.dsn
+# goose-brain Worker
+/backend/**/node_modules/
+/backend/**/.dev.vars
+/backend/**/.wrangler/
+/backend/goose-brain/voice-lab/

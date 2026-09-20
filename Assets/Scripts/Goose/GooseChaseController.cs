@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace GooseBrawl
 {
-    public enum GooseState { Idle, Walk, Run, AngryFlap, JumpAttack, Dash, Glare, Stunned, GameOver }
+    public enum GooseState { Idle, Walk, Run, AngryFlap, JumpAttack, Dash, Glare, Stunned, GameOver, Distracted, Eating, Flinched }
 
     /// <summary>
     /// The goose brain. Chases the player's horizontal position, escalates over time in four tiers
@@ -94,13 +94,17 @@ namespace GooseBrawl
         public GooseObstacleAvoidance Avoidance { get; private set; }
         public GooseVisualController Visual { get; private set; }
         public GooseAttackController Attack { get; private set; }
+        public GooseVoice Voice { get; private set; }
 
         public float DistanceToPlayer { get; private set; } = 99f;
         /// <summary>0 = far away, 1 = about to be caught.</summary>
         public float Danger01 { get; private set; }
         public float ChaseTime { get; private set; }
-        /// <summary>Escalation tier 0-3 (3 = rage).</summary>
+        /// <summary>Escalation tier 0-3 (3 = rage): time-based, drives dashes, lunges and rage. Deterministic.</summary>
         public int Tier { get; private set; }
+        /// <summary>How angry it looks and sounds (0-3): the tier plus what you did to it (bread). Drives animation, honks, feathers only.</summary>
+        public int Anger { get; private set; }
+        bool m_DashOnce;
         public bool Paused { get; set; }
         public bool Rage => Tier >= 3;
         public bool FlyingIn { get; private set; }
@@ -111,6 +115,8 @@ namespace GooseBrawl
         public int HonkCount { get; private set; }
         public int DashCount { get; private set; }
         public float RageStartTime => tierStartTimes != null && tierStartTimes.Length >= 3 ? tierStartTimes[2] : 30f;
+        /// <summary>Benchmark mode: the goose chases but never catches or lunges.</summary>
+        public bool NoCatch { get; set; }
         float m_GraceUntil;
 
         static readonly string[] k_HonkTexts = { "HONK!", "HONK!!", "HOOONK", "honk.", "HONK?", "HONKHONK" };
@@ -129,6 +135,15 @@ namespace GooseBrawl
         AudioLowPassFilter m_VoiceLp, m_BodyLp;
         float m_BehindCutoff = 22000f;
         float m_FlyHeight = 1.7f;
+        float m_HonkSuppressedUntil;
+        int m_TierBoost;
+        BreadController m_Bread;
+        float m_EatUntil, m_NextPeck;
+        public int BreadsEaten { get; private set; }
+        [Header("Bread / yell")]
+        public float eatSeconds = 2.8f;
+        public float breadReach = 0.38f;
+        public float flinchSeconds = 1.2f;
 
         void Awake()
         {
@@ -145,8 +160,11 @@ namespace GooseBrawl
             Movement.environmentMask = mask;
             Avoidance.environmentMask = mask;
             EnsureAudioSources();
+            Voice = GetComponent<GooseVoice>();
+            if (Voice == null) Voice = gameObject.AddComponent<GooseVoice>();
+            Voice.Bind(this, mgr);
             Visual.Initialize();
-            if (mgr.Materials != null) Visual.ApplyMaterial(mgr.Materials.PickGooseMaterial());
+            if (mgr.Materials != null) Visual.ApplyMaterial(mgr.Materials.PickGooseMaterial(mgr.Score != null ? mgr.Score.GamesPlayed : 0));
         }
 
         void EnsureAudioSources()
@@ -186,6 +204,10 @@ namespace GooseBrawl
             m_Spawned = true;
             ChaseTime = 0f;
             Tier = 0;
+            Anger = 0;
+            m_TierBoost = 0;
+            m_DashOnce = false;
+            BreadsEaten = 0;
             m_StuckCount = 0;
             m_NextHonk = Time.time + 1.6f;
             m_NextFlap = Time.time + angryFlapInterval;
@@ -224,6 +246,10 @@ namespace GooseBrawl
             SeenTime = 0f;
             ChaseTime = 0f;
             Tier = 0;
+            Anger = 0;
+            m_TierBoost = 0;
+            m_DashOnce = false;
+            BreadsEaten = 0;
             m_StuckCount = 0;
             StartCoroutine(FlyInRoutine(landing, floorY, onLanded));
         }
@@ -298,6 +324,7 @@ namespace GooseBrawl
             FlyingIn = false;
             Glaring = true;
             SetState(GooseState.Glare);
+            m_Mgr.OnGooseGlareStarted();
             Visual.Play(GooseAnimationResolver.Slot.Idle, 0.25f, 1f);
             Visual.Procedural.Flapping = false;
             float glareT = 0f;
@@ -372,7 +399,11 @@ namespace GooseBrawl
             ChaseTime += dt;
             UpdateTier();
 
-            bool grace = Time.time < m_GraceUntil;
+            if (State == GooseState.Distracted) { UpdateDistracted(dt); return; }
+            if (State == GooseState.Eating) { UpdateEating(dt); return; }
+            if (State == GooseState.Flinched) { UpdateFlinched(dt); return; }
+
+            bool grace = Time.time < m_GraceUntil || NoCatch;
             if (!grace && DistanceToPlayer <= catchDistance && State != GooseState.Stunned)
             {
                 // Never a peck below the frame: the catch is a rising flight into the player's face (it can still miss).
@@ -416,7 +447,7 @@ namespace GooseBrawl
             if (Time.time >= m_NextFlap && DistanceToPlayer > lungeTriggerDistance + 0.5f)
             {
                 m_NextFlap = Time.time + angryFlapInterval * Random.Range(0.7f, 1.4f) * (Rage ? 0.55f : 1f);
-                if (Random.value < thinkPauseChance && Tier < 2)
+                if (Random.value < thinkPauseChance && Anger < 2)
                 {
                     Visual.Procedural.PauseToThink(thinkPauseDuration);
                     EnterAngryFlap(thinkPauseDuration, quiet: true);
@@ -454,12 +485,12 @@ namespace GooseBrawl
             var want = spd < 0.05f ? GooseState.Idle : (spd < (walkSpeed + runSpeed) * 0.5f ? GooseState.Walk : GooseState.Run);
             if (want != State) SetState(want);
 
-            float urgency = 1f + 0.18f * Tier;
+            float urgency = 1f + 0.18f * Anger;
             Visual.SetLocomotionSpeed(spd, State == GooseState.Run, urgency);
             Visual.Procedural.MoveSpeed01 = Mathf.Clamp01(spd / maxChaseSpeed);
-            float tilt = State == GooseState.Run ? Mathf.Lerp(9f, 15f, Tier / 3f) : 3f;
+            float tilt = State == GooseState.Run ? Mathf.Lerp(9f, 15f, Anger / 3f) : 3f;
             Visual.Procedural.BodyTilt = tilt * Mathf.Clamp01(spd / maxChaseSpeed) + (Rage ? 3f : 0f);
-            Visual.SetFeatherTrail(Tier >= 2 && spd > 0.5f);
+            Visual.SetFeatherTrail(Anger >= 2 && spd > 0.5f);
             UpdateRunFlaps(spd);
 
             if (spd > 0.1f && Time.time >= m_NextFootstep)
@@ -486,13 +517,13 @@ namespace GooseBrawl
             }
             if (Time.time >= m_NextRunFlap)
             {
-                float burst = Random.Range(runFlapBurstMin, runFlapBurstMax) * Mathf.Lerp(1f, 1.3f, Tier / 3f);
+                float burst = Random.Range(runFlapBurstMin, runFlapBurstMax) * Mathf.Lerp(1f, 1.3f, Anger / 3f);
                 m_RunFlapUntil = Time.time + burst;
-                m_NextRunFlap = m_RunFlapUntil + Random.Range(runFlapPauseMin, runFlapPauseMax) * Mathf.Lerp(1f, 0.5f, Tier / 3f);
+                m_NextRunFlap = m_RunFlapUntil + Random.Range(runFlapPauseMin, runFlapPauseMax) * Mathf.Lerp(1f, 0.5f, Anger / 3f);
                 m_NextRunFlapSound = Time.time + 0.32f;
                 RunFlapCount++;
                 m_Mgr.Audio.PlayFlap(bodySource);
-                if (Tier >= 2) Visual.FeatherBurst(4);
+                if (Anger >= 2) Visual.FeatherBurst(4);
             }
             bool flapping = Time.time < m_RunFlapUntil;
             if (flapping && Time.time >= m_NextRunFlapSound)
@@ -500,9 +531,9 @@ namespace GooseBrawl
                 m_NextRunFlapSound = Time.time + 0.34f;
                 m_Mgr.Audio.PlayFlap(bodySource);
             }
-            float weight = flapping ? Mathf.Lerp(0.6f, 0.95f, Tier / 3f) : 0f;
+            float weight = flapping ? Mathf.Lerp(0.6f, 0.95f, Anger / 3f) : 0f;
             // Sprinting late in the chase: wings stay a little out between bursts.
-            if (!flapping && State == GooseState.Run && Tier >= 2 && spd > 0.9f) weight = 0.22f;
+            if (!flapping && State == GooseState.Run && Anger >= 2 && spd > 0.9f) weight = 0.22f;
             Visual.SetWingLayer(weight);
         }
 
@@ -512,7 +543,9 @@ namespace GooseBrawl
             if (tierStartTimes != null)
                 for (int i = 0; i < tierStartTimes.Length && i < 3; i++)
                     if (ChaseTime >= tierStartTimes[i]) tier = i + 1;
+            Anger = Mathf.Min(3, tier + m_TierBoost);
             if (tier == Tier) return;
+            if (Tier < 1 && tier >= 1) m_NextDash = Mathf.Min(m_NextDash, Time.time + 1.5f);
             Tier = tier;
             if (Tier >= 3 && !m_RageAnnounced) EnterRage();
         }
@@ -556,7 +589,7 @@ namespace GooseBrawl
         /// <summary>Flap-dash: a quick low hop toward the player that stops well short. Cadence rises with the tier.</summary>
         bool TryDash()
         {
-            if (Tier < 1 || Time.time < m_NextDash) return false;
+            if ((Tier < 1 && !m_DashOnce) || Time.time < m_NextDash) return false;
             if (Attack.IsHopping || Time.time - Attack.LastLungeTime < 1f) return false;
             float minD = Rage ? 1.9f : dashMinDistance;
             if (DistanceToPlayer < minD || DistanceToPlayer > dashMaxDistance) return false;
@@ -573,8 +606,9 @@ namespace GooseBrawl
                 m_NextDash = Time.time + 1f;
                 return false;
             }
-            int tier = Mathf.Clamp(Tier, 0, dashCooldownByTier.Length - 1);
-            m_NextDash = Time.time + dashCooldownByTier[tier] * Random.Range(0.8f, 1.2f);
+            int tier = Mathf.Clamp(Mathf.Max(Tier, 1), 0, dashCooldownByTier.Length - 1);
+            m_NextDash = Time.time + (Tier < 1 ? 99f : dashCooldownByTier[tier] * Random.Range(0.8f, 1.2f));
+            m_DashOnce = false;
             DashCount++;
             SetState(GooseState.Dash);
             StartCoroutine(Attack.HopRoutine(this, GooseAttackController.HopSpec.Dash(hopLen, dashStopDistance), () => m_Mgr.Player.FlatPosition, _ =>
@@ -591,7 +625,7 @@ namespace GooseBrawl
         {
             if (Time.time < m_NextHonk) return;
             float interval = Mathf.Lerp(honkIntervalFar, honkIntervalNear, Danger01) * Random.Range(1f - honkJitter, 1f + honkJitter);
-            interval *= Mathf.Lerp(1f, 0.7f, Tier / 3f);
+            interval *= Mathf.Lerp(1f, 0.7f, Anger / 3f);
             if (Rage) interval *= rageHonkIntervalMultiplier;
             m_NextHonk = Time.time + interval;
             var kind = Danger01 > 0.7f ? AudioManager.HonkKind.Near : (Danger01 > 0.35f ? AudioManager.HonkKind.Mid : AudioManager.HonkKind.Far);
@@ -600,8 +634,16 @@ namespace GooseBrawl
         }
 
         /// <summary>Play a honk: 3D audio, head gesture, a haptic when close and a comic bubble on the HUD, all on the same frame.</summary>
-        public void Honk(AudioManager.HonkKind kind)
+        /// <summary>While the goose speaks, scheduled honks wait (a talking goose that honks over itself is noise).</summary>
+        public void SuppressHonks(float seconds)
         {
+            m_HonkSuppressedUntil = Mathf.Max(m_HonkSuppressedUntil, Time.time + seconds);
+            m_NextHonk = Mathf.Max(m_NextHonk, m_HonkSuppressedUntil + 0.3f);
+        }
+
+        public void Honk(AudioManager.HonkKind kind, bool force = false)
+        {
+            if (!force && Time.time < m_HonkSuppressedUntil) return;
             HonkCount++;
             m_Mgr.Audio.PlayGooseHonk(kind, voiceSource, Danger01);
             Visual.Procedural.TriggerHonkGesture();
@@ -614,6 +656,130 @@ namespace GooseBrawl
             m_Mgr.UI.PulseLocator();
             if (Danger01 > 0.5f || angry)
                 m_Mgr.Haptics.Continuous(Mathf.Clamp(length * (1f + 0.15f * Tier), 0.12f, 0.8f), Mathf.Lerp(0.25f, 0.8f, Danger01) * (0.75f + 0.09f * Tier), 0.5f + 0.1f * Tier);
+        }
+
+        // ------------------------------------------------------------------ bread
+        /// <summary>A bread roll landed: the goose goes for it instead of the player, eats, then comes back angrier.</summary>
+        public bool Distract(BreadController bread)
+        {
+            if (bread == null || State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || FlyingIn || Glaring) return false;
+            m_Bread = bread;
+            SetState(GooseState.Distracted);
+            Visual.Procedural.Flapping = false;
+            Visual.SetFeatherTrail(false);
+            Visual.Play(GooseAnimationResolver.Slot.Run, 0.15f, 1f);
+            m_Mgr.UI.ShowHonk(transform.position, "BREAD?!", 1.1f, 1f);
+            m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Near, voiceSource, 0.2f, 0.12f);
+            Visual.Procedural.TriggerHonkGesture();
+            m_NextReplan = 0f;
+            return true;
+        }
+
+        void UpdateDistracted(float dt)
+        {
+            if (m_Bread == null) { SetState(GooseState.Walk); return; }
+            Vector3 target = m_Bread.LandingPosition;
+            Vector3 to = target - transform.position; to.y = 0f;
+            float dist = to.magnitude;
+            if (m_Bread.Landed && dist <= breadReach) { StartEating(); return; }
+            if (Time.time >= m_NextReplan)
+            {
+                m_NextReplan = Time.time + 1f / Mathf.Max(1f, replanRate);
+                var decision = Avoidance.Choose(transform.position, to, Movement.Heading, dist, m_StuckCount > 0);
+                Movement.SetDesired(decision.direction, (m_Bread.Landed ? runSpeed * 1.1f : walkSpeed) * decision.speedScale);
+            }
+            float spd = Movement.CurrentSpeed;
+            Visual.SetLocomotionSpeed(spd, spd > (walkSpeed + runSpeed) * 0.5f, 1.1f);
+            Visual.Procedural.MoveSpeed01 = Mathf.Clamp01(spd / maxChaseSpeed);
+            Visual.Procedural.HasLookTarget = true;
+            Visual.Procedural.LookTarget = target + Vector3.up * 0.05f;
+            if (spd > 0.1f && Time.time >= m_NextFootstep)
+            {
+                m_NextFootstep = Time.time + footstepInterval * Mathf.Clamp(walkSpeed / Mathf.Max(spd, 0.3f), 0.45f, 1.5f);
+                m_Mgr.Audio.PlayFootstep(bodySource, Mathf.Clamp01(spd / runSpeed));
+                Visual.FootDust();
+            }
+        }
+
+        void StartEating()
+        {
+            SetState(GooseState.Eating);
+            Movement.Stop();
+            Movement.SetHeading(m_Bread.LandingPosition - transform.position);
+            Visual.Play(GooseAnimationResolver.Slot.Attack, 0.1f, 1f, true);
+            m_EatUntil = Time.time + eatSeconds;
+            m_NextPeck = Time.time + 0.15f;
+            m_Mgr.UI.ShowHonk(transform.position, "OM NOM.", 1.4f, 1.05f);
+            m_Mgr.Audio.PlayGooseHonk(AudioManager.HonkKind.Near, voiceSource, 0.3f, 0.15f);
+            Visual.Procedural.TriggerHonkGesture();
+            m_Mgr.Haptics.Transient(0.3f, 0.5f);
+            StartCoroutine(m_Bread.Eat(eatSeconds));
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "bread.eating", ("tier", Tier), ("survival_s", ChaseTime));
+        }
+
+        void UpdateEating(float dt)
+        {
+            if (m_Bread != null) Movement.FaceTowards(m_Bread.LandingPosition - transform.position, dt);
+            Visual.Procedural.HasLookTarget = true;
+            if (m_Bread != null) Visual.Procedural.LookTarget = m_Bread.LandingPosition;
+            if (Time.time >= m_NextPeck)
+            {
+                m_NextPeck = Time.time + 0.5f;
+                Visual.Procedural.PeckPulse();
+                Visual.CrumbPuff();
+                Visual.Play(GooseAnimationResolver.Slot.Attack, 0.05f, 1.1f, true);
+            }
+            if (Time.time < m_EatUntil) return;
+            // Done: angrier, and straight back at you with a dash.
+            BreadsEaten++;
+            m_TierBoost = Mathf.Min(3, m_TierBoost + 1);
+            m_Bread = null;
+            m_DashOnce = true;
+            m_NextDash = Time.time + 0.5f;
+            m_NextReplan = 0f;
+            m_NextHonk = Time.time + 0.6f;
+            Visual.Procedural.HasLookTarget = true;
+            SetState(GooseState.Walk);
+            UpdateTier();
+            Visual.FeatherBurst(6);
+            m_Mgr.OnBreadEaten();
+        }
+
+        // ------------------------------------------------------------------ yell
+        /// <summary>The player shouted: a flinch, then it comes back at you with a dash.</summary>
+        public bool Flinch()
+        {
+            if (State == GooseState.GameOver || State == GooseState.JumpAttack || State == GooseState.Dash || State == GooseState.Eating || State == GooseState.Flinched || FlyingIn || Glaring) return false;
+            m_Bread = null;
+            SetState(GooseState.Flinched);
+            m_StateTimer = flinchSeconds;
+            Movement.ClearStuck();
+            Vector3 away = transform.position - m_Mgr.Player.FlatPosition; away.y = 0f;
+            m_RecoveryDir = away.sqrMagnitude > 1e-4f ? away.normalized : -transform.forward;
+            Visual.Play(GooseAnimationResolver.Slot.Hit, 0.08f, 1f, true);
+            Visual.FeatherBurst(8);
+            Visual.Procedural.PauseToThink(flinchSeconds);
+            Visual.Procedural.Flapping = true;
+            Visual.Procedural.FlapIntensity = 0.5f;
+            Visual.Procedural.SquashStretch = 0.86f;
+            m_Mgr.UI.ShowHonk(transform.position, "RUDE.", 1.2f, 1.05f);
+            m_Mgr.Haptics.Transient(0.5f, 0.6f);
+            return true;
+        }
+
+        void UpdateFlinched(float dt)
+        {
+            m_StateTimer -= dt;
+            Movement.SetDesired(m_RecoveryDir, walkSpeed * 0.6f);
+            if (m_StateTimer > 0f) return;
+            Movement.ClearStuck();
+            Visual.Procedural.Flapping = false;
+            SetState(GooseState.Walk);
+            Honk(Rage ? AudioManager.HonkKind.Rage : AudioManager.HonkKind.Angry, force: true);
+            m_DashOnce = true;
+            m_NextDash = Time.time + 0.8f;
+            m_NextReplan = 0f;
+            m_NextFlap = Time.time + angryFlapInterval;
         }
 
         void EnterRage()
@@ -630,6 +796,40 @@ namespace GooseBrawl
                 CinematicLookController.Instance.SetRage(true);
             }
             m_NextFlap = Time.time + angryFlapInterval * 0.5f;
+            m_Mgr.OnGooseRage();
+        }
+
+        /// <summary>Outlasted: the goose stops, flops and sulks. Terminal like Catch, but the player won.</summary>
+        public void GiveUp()
+        {
+            if (State == GooseState.GameOver) return;
+            StopAllCoroutines();
+            SetState(GooseState.GameOver);
+            Movement.Stop();
+            Movement.ExternalControl = true;
+            Visual.SetFeatherTrail(false);
+            Movement.SetHeading(m_Mgr.Player.FlatPosition - transform.position);
+            Vector3 p = transform.position; p.y = Movement.SampleFloor(p); transform.position = p;
+            Visual.SetAirHeight(0f);
+            Visual.Procedural.Flapping = false;
+            Visual.Procedural.SquashStretch = 0.8f;
+            Visual.Procedural.BodyTilt = 0f;
+            Visual.FeatherBurst(12);
+            Danger01 = 0f;
+            StartCoroutine(GiveUpRoutine());
+        }
+
+        IEnumerator GiveUpRoutine()
+        {
+            Honk(AudioManager.HonkKind.Dramatic, force: true);
+            m_Mgr.UI.ShowHonk(transform.position, "...FINE.", 1.6f, 1.1f);
+            var death = Visual.resolver != null ? Visual.resolver.Get(GooseAnimationResolver.Slot.Death) : null;
+            if (death != null) Visual.Play(GooseAnimationResolver.Slot.Death, 0.2f, 1f, true);
+            else Visual.Play(GooseAnimationResolver.Slot.Hit, 0.15f, 0.8f, true);
+            yield return new WaitForSeconds(0.9f);
+            Honk(AudioManager.HonkKind.Dramatic, force: true);
+            yield return new WaitForSeconds(1.4f);
+            if (death == null) Visual.Play(GooseAnimationResolver.Slot.Idle, 0.4f, 0.8f);
         }
 
         void EnterAngryFlap(float duration, bool quiet = false)
@@ -719,7 +919,7 @@ namespace GooseBrawl
             Visual.Procedural.SquashStretch = 1.25f;
             Visual.FeatherBurst(20);
             Danger01 = 1f;
-            Honk(AudioManager.HonkKind.Rage);
+            Honk(AudioManager.HonkKind.Rage, force: true);
             m_Mgr.OnPlayerCaught();
             StartCoroutine(VictoryRoutine());
         }

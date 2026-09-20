@@ -26,6 +26,8 @@ namespace GooseBrawl
         public Material mockWallMaterial;
         public Material dustMaterial;
         public Material accentMaterial;
+        public Material breadMaterial;
+        public Material crumbMaterial;
         [Tooltip("Optional real nest model (any FBX/OBJ under Assets/Art/Nest is picked up by Setup Project).")]
         public GameObject nestModel;
 
@@ -46,11 +48,13 @@ namespace GooseBrawl
         public Material Dust => dustMaterial != null ? dustMaterial : (dustMaterial = ProceduralAssets.UnlitTransparent("Dust_Runtime", new Color(0.85f, 0.78f, 0.62f, 0.7f), ProceduralAssets.RadialTexture()));
         public Material PlaceholderGoose => placeholderGooseMaterial != null ? placeholderGooseMaterial : (placeholderGooseMaterial = ProceduralAssets.LitMaterial("PlaceholderGoose_Runtime", new Color(0.95f, 0.95f, 0.93f), 0.3f));
         public Material Accent => accentMaterial != null ? accentMaterial : (accentMaterial = ProceduralAssets.LitMaterial("Accent_Runtime", new Color(1f, 0.55f, 0.1f), 0.4f));
+        public Material Bread => breadMaterial != null ? breadMaterial : (breadMaterial = ProceduralAssets.LitMaterial("Bread_Runtime", new Color(0.95f, 0.85f, 0.7f), 0.12f, default, ProceduralAssets.CrustTexture()));
+        public Material Crumbs => crumbMaterial != null ? crumbMaterial : (crumbMaterial = ProceduralAssets.UnlitTransparent("Crumbs_Runtime", new Color(0.8f, 0.58f, 0.3f, 0.9f), ProceduralAssets.RadialTexture()));
 
-        /// <summary>Goose material for this round: the grey variant on roughly one round in three.</summary>
-        public Material PickGooseMaterial()
+        /// <summary>Goose material for this round: the grey variant every third game (deterministic: the demo run is never a dice roll).</summary>
+        public Material PickGooseMaterial(int gamesPlayed = 0)
         {
-            if (gooseMaterialGrey != null && gooseMaterial != null && Random.value < 0.33f) return gooseMaterialGrey;
+            if (gooseMaterialGrey != null && gooseMaterial != null && gamesPlayed % 3 == 2) return gooseMaterialGrey;
             return gooseMaterial;
         }
 

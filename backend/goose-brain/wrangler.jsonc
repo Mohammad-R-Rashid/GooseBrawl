@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "goose-brain",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-09-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "GooseBrain", "class_name": "GooseBrain" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GooseBrain"] }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "goose-audio" }],
+  "vars": {
+    // Public DSN of the Sentry "goose-brain" (Cloudflare) project. Empty = Sentry off.
+    "SENTRY_DSN": "https://a14247c9fa3f2420295276748530dc6b@o4512115987054592.ingest.us.sentry.io/4512115992625152",
+    "SENTRY_ENVIRONMENT": "hackathon",
+    // ElevenLabs voice designed by scripts/design-voice.ts (see README). Empty = first available voice.
+    "ELEVENLABS_VOICE_ID": "N2lVS1w4EtoT3dr4eOWO",
+    // Laura, "Enthusiast, Quirky Attitude": the female-named geese (BRENDA, MARGARET, AGNES, PAMELA).
+    "ELEVENLABS_VOICE_ID_FEMALE": "FGY2WhTYpPnrIDTdsKH5",
+    "ELEVENLABS_MODEL": "eleven_v3_conversational",
+    // Delivery (see scripts/voice-lab.ts): variant B "theatrical": sentence case, creative stability, high style, a little faster.
+    "ELEVENLABS_STABILITY": "0.2",
+    "ELEVENLABS_STYLE": "0.7",
+    "ELEVENLABS_SPEED": "1.1",
+    "ELEVENLABS_TEXT_CASE": "sentence",
+    // Shared key for PUT /cache/<hash> (uploading the pre-generated bank). Not a secret, just a spam guard.
+    "WARM_KEY": "goosed-bank-2026",
+    "OPENAI_MODEL": "gpt-5.6-luna",
+    "OPENAI_TRANSCRIBE_MODEL": "gpt-transcribe",
+    // "1" = no third-party calls: bank lines + a synthesized honk WAV (local dev without keys).
+    "MOCK_AI": "0"
+  }
+  // Secrets (never here): wrangler secret put OPENAI_API_KEY / ELEVENLABS_API_KEY
+}

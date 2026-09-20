@@ -31,7 +31,10 @@ namespace GooseBrawl
         RectTransform m_TitleGroup, m_MeterPill, m_ScanBack;
         UILabel m_StartBest, m_Message, m_MockHint, m_Tracking;
         UILabel m_Time, m_Honks, m_Best, m_DangerLabel, m_TurnAround;
-        UILabel m_GoTitle, m_GoTime, m_GoScore, m_GoBest;
+        UILabel m_GoTitle, m_GoTime, m_GoScore, m_GoBest, m_GoGrudge;
+        UILabel m_Subtitle, m_BreadLabel;
+        RectTransform m_SubtitlePill, m_BreadButton;
+        float m_SubtitleUntil;
         UILabel m_SoundToggle, m_HapticsToggle;
         RectTransform m_TrackingPill;
         UILabel m_ScanSubtitle, m_PlaceSubtitle;
@@ -96,6 +99,14 @@ namespace GooseBrawl
             UIFactory.Place(m_Message.Rect, new Vector2(0.5f, 0.5f), new Vector2(0f, 140f), new Vector2(980f, 320f));
             m_Message.SetActive(false);
 
+            // Subtitle pill: what the goose just said, for the audience (lives across screens, like the message).
+            var subtitlePill = UIFactory.CreateGlassPill(m_Safe, "SubtitlePill", new Vector2(620f, 92f), strong: true);
+            UIFactory.Place(subtitlePill.rectTransform, new Vector2(0.5f, 0f), new Vector2(60f, 196f), new Vector2(620f, 92f));
+            m_Subtitle = UIFactory.CreateLabel(subtitlePill.transform, "Text", "", 32f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud, autoSize: true);
+            UIFactory.Stretch(m_Subtitle.Rect, 12f);
+            m_SubtitlePill = subtitlePill.rectTransform;
+            m_SubtitlePill.gameObject.SetActive(false);
+
             // Tracking hint pill
             var trackingPill = UIFactory.CreateGlassPill(m_Safe, "TrackingPill", new Vector2(760f, 88f));
             UIFactory.Place(trackingPill.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 300f), new Vector2(760f, 88f));
@@ -105,7 +116,7 @@ namespace GooseBrawl
             m_TrackingPill.gameObject.SetActive(false);
 
 #if UNITY_EDITOR
-            m_MockHint = UIFactory.CreateLabel(m_Safe, "MockHint", "editor mock  ·  WASD move  ·  Q/E turn  ·  right-drag look  ·  SPACE start/steal/resume  ·  R restart", 22f, UITheme.Ink, false, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
+            m_MockHint = UIFactory.CreateLabel(m_Safe, "MockHint", "editor mock  ·  WASD move  ·  Q/E turn  ·  right-drag look  ·  SPACE start/steal/resume  ·  R restart  ·  B bread  ·  Y yell", 19f, UITheme.Ink, false, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Place(m_MockHint.Rect, new Vector2(0.5f, 0f), new Vector2(0f, 8f), new Vector2(1040f, 36f));
             m_MockHint.SetActive(false);
 #endif
@@ -233,14 +244,20 @@ namespace GooseBrawl
             UIFactory.Place(m_Time.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -26f), new Vector2(700f, 120f));
             UIFactory.AddShadow(m_Time, new Color(0f, 0f, 0f, 0.55f), new Vector2(0f, -4f));
 
-            var honksPill = UIFactory.CreateGlassPill(m_HUD, "HonksPill", new Vector2(300f, 64f));
-            UIFactory.Place(honksPill.rectTransform, new Vector2(0.5f, 1f), new Vector2(-160f, -150f), new Vector2(300f, 64f));
+            var honksPill = UIFactory.CreateGlassPill(m_HUD, "HonksPill", new Vector2(420f, 64f));
+            UIFactory.Place(honksPill.rectTransform, new Vector2(0.5f, 1f), new Vector2(-190f, -150f), new Vector2(420f, 64f));
             m_Honks = UIFactory.CreateLabel(honksPill.transform, "Honks", "HONKS 0", 30f, UITheme.Ink, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Stretch(m_Honks.Rect, 8f);
             var bestPill = UIFactory.CreateGlassPill(m_HUD, "BestPill", new Vector2(300f, 64f));
-            UIFactory.Place(bestPill.rectTransform, new Vector2(0.5f, 1f), new Vector2(160f, -150f), new Vector2(300f, 64f));
+            UIFactory.Place(bestPill.rectTransform, new Vector2(0.5f, 1f), new Vector2(190f, -150f), new Vector2(300f, 64f));
             m_Best = UIFactory.CreateLabel(bestPill.transform, "Best", "BEST 0:00.0", 30f, UITheme.InkMuted, true, TextAnchor.MiddleCenter, default, 0f, UIFont.Hud);
             UIFactory.Stretch(m_Best.Rect, 8f);
+
+            // BREAD: one throw per recharge, bottom-left, out of the subtitle's way.
+            m_BreadButton = SmallGlassButton(m_HUD, "Bread", "BREAD", new Vector2(0f, 0f), new Vector2(24f, 190f), new Vector2(200f, 96f),
+                () => GooseGameManager.Instance.OnBreadPressed(), out m_BreadLabel);
+            m_BreadLabel.FontSize = 34f;
+            m_BreadButton.gameObject.SetActive(false);
 
             SmallGlassButton(m_HUD, "Pause", "II", new Vector2(1f, 1f), new Vector2(-24f, -24f), new Vector2(96f, 96f),
                 () => GooseGameManager.Instance.TogglePause(), out var pauseLabel);
@@ -277,6 +294,9 @@ namespace GooseBrawl
             m_GoTitle = UIFactory.CreateLabel(m_GameOver, "Title", "THE GOOSE\nGOT YOU", 118f, UITheme.Yolk, true, TextAnchor.MiddleCenter, UITheme.Brown, 0.28f, UIFont.Display, autoSize: true);
             UIFactory.Place(m_GoTitle.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -230f), new Vector2(980f, 340f));
             m_GoTitle.Rect.localRotation = Quaternion.Euler(0f, 0f, -3f);
+            m_GoGrudge = UIFactory.CreateLabel(m_GameOver, "Grudge", "", 34f, UITheme.White, true, TextAnchor.MiddleCenter, UITheme.Brown, 0.22f);
+            UIFactory.Place(m_GoGrudge.Rect, new Vector2(0.5f, 1f), new Vector2(0f, -462f), new Vector2(900f, 56f));
+            m_GoGrudge.SetActive(false);
 
             var card = UIFactory.CreatePanel(m_GameOver, "ResultCard", UITheme.CreamPanel);
             UIFactory.Place(card, new Vector2(0.5f, 0.5f), new Vector2(0f, -40f), new Vector2(820f, 440f));
@@ -502,12 +522,19 @@ namespace GooseBrawl
 
         public void ShowGameOver(string title, float time, int score, float bestTime, int bestScore, bool newBest)
         {
+            ShowGameOver(title, time, score, 0, bestTime, bestScore, newBest, false, "");
+        }
+
+        public void ShowGameOver(string title, float time, int honks, int dodges, float bestTime, int bestScore, bool newBest, bool won, string grudgeLine)
+        {
             HideAll();
             m_GameOver.gameObject.SetActive(true);
             m_GoTitle.Text = title;
-            m_GoTime.Text = "You survived";
+            m_GoTime.Text = won ? "You outlasted the goose in" : "You survived";
             m_GoScore.Text = ScoreManager.FormatTime(time);
-            m_GoBest.Text = "HONKS " + score + "   ·   BEST " + ScoreManager.FormatTime(bestTime);
+            m_GoBest.Text = "HONKS " + honks + "   ·   DODGES " + dodges + "   ·   BEST " + ScoreManager.FormatTime(bestTime);
+            m_GoGrudge.Text = grudgeLine ?? "";
+            m_GoGrudge.SetActive(!string.IsNullOrEmpty(grudgeLine));
             m_NewBestStamp.gameObject.SetActive(newBest);
             StartCoroutine(PopIn(m_GoTitle.Rect, 0.4f));
             if (newBest) StartCoroutine(PopIn(m_NewBestStamp.rectTransform, 0.5f));
@@ -515,10 +542,38 @@ namespace GooseBrawl
 
         public void UpdateHUD(float time, int honks, float bestTime)
         {
+            UpdateHUD(time, honks, 0, bestTime);
+        }
+
+        public void UpdateHUD(float time, int honks, int dodges, float bestTime)
+        {
             if (!m_HudActive) return;
             m_Time.Text = ScoreManager.FormatTime(time);
-            m_Honks.Text = "HONKS " + honks;
+            m_Honks.Text = dodges > 0 ? "HONKS " + honks + "  ·  DODGES " + dodges : "HONKS " + honks;
             m_Best.Text = "BEST " + ScoreManager.FormatTime(bestTime);
+        }
+
+        /// <summary>The BREAD button: hidden outside the chase, dimmed while recharging.</summary>
+        public void SetBread(bool visible, bool ready, float rechargeLeft)
+        {
+            if (m_BreadButton == null) return;
+            if (m_BreadButton.gameObject.activeSelf != visible) m_BreadButton.gameObject.SetActive(visible);
+            if (!visible) return;
+            m_BreadLabel.Text = ready ? "BREAD" : "BREAD " + Mathf.CeilToInt(rechargeLeft) + "s";
+            m_BreadLabel.Color = ready ? UITheme.Yolk : UITheme.InkMuted;
+        }
+
+        /// <summary>What the goose just said, in the audience's reading position.</summary>
+        public void ShowSubtitle(string text, float seconds)
+        {
+            if (m_SubtitlePill == null || string.IsNullOrEmpty(text)) return;
+            bool results = m_GameOver != null && m_GameOver.gameObject.activeSelf;
+            m_SubtitlePill.anchoredPosition = results ? new Vector2(0f, 470f) : new Vector2(60f, 196f);
+            m_Subtitle.Text = text;
+            m_SubtitleUntil = Time.unscaledTime + Mathf.Max(0.8f, seconds);
+            m_SubtitlePill.gameObject.SetActive(true);
+            m_SubtitlePill.SetAsLastSibling();
+            StartCoroutine(PopIn(m_SubtitlePill, 0.18f));
         }
 
         public void SetDanger(float danger, bool gooseBehind, float angle, bool gooseVisible)
@@ -669,6 +724,8 @@ namespace GooseBrawl
 
             if (m_Message.GameObject != null && m_Message.GameObject.activeSelf && t > m_MessageUntil)
                 m_Message.SetActive(false);
+            if (m_SubtitlePill != null && m_SubtitlePill.gameObject.activeSelf && t > m_SubtitleUntil)
+                m_SubtitlePill.gameObject.SetActive(false);
 
             // Honk bubbles
             foreach (var b in m_Bubbles)

@@ -392,6 +392,20 @@ namespace GooseBrawl
             }
         }
 
+        ParticleSystem m_Crumbs;
+
+        /// <summary>Crumbs off the beak while eating bread.</summary>
+        public void CrumbPuff()
+        {
+            var mats = MaterialLibrary.Instance;
+            if (m_Crumbs == null) m_Crumbs = ProceduralAssets.CreateCrumbPuff(transform, mats != null ? mats.Crumbs : null);
+            if (m_Crumbs == null) return;
+            Vector3 beak = headBone != null ? headBone.position + transform.forward * 0.12f : transform.position + Vector3.up * 0.3f + transform.forward * 0.3f;
+            m_Crumbs.transform.position = beak;
+            m_Crumbs.transform.rotation = Quaternion.LookRotation(transform.forward + Vector3.up * 0.4f);
+            m_Crumbs.Play();
+        }
+
         /// <summary>A puff of little white feathers from the wings.</summary>
         public void FeatherBurst(int count = -1)
         {

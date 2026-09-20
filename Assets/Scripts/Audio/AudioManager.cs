@@ -294,15 +294,78 @@ namespace GooseBrawl
         }
 
         /// <summary>Honk through a goose source. Real recordings when available; danger nudges pitch and volume.</summary>
-        public void PlayGooseHonk(HonkKind kind, AudioSource source, float danger)
+#if UNITY_IOS && !UNITY_EDITOR
+        [System.Runtime.InteropServices.DllImport("__Internal")] static extern int GooseAudio_ApplyPlayback();
+#endif
+        float m_NextSessionCheck;
+        public int PlaybackSessionApplied { get; private set; }
+
+        /// <summary>
+        /// iOS: the game must be audible with the ringer switch off. Unity's default session category (Ambient) obeys the switch,
+        /// so we move to Playback whenever the microphone is not recording (recording needs PlayAndRecord, which also ignores the switch).
+        /// </summary>
+        public void EnsurePlaybackSession(string reason)
         {
+#if UNITY_IOS && !UNITY_EDITOR
+            try
+            {
+                if (Microphone.IsRecording(null)) return;
+                int r = GooseAudio_ApplyPlayback();
+                if (r == 1) { PlaybackSessionApplied++; GooseTelemetry.Log(GooseTelemetry.Level.Info, "audio.session_playback", ("reason", reason), ("applied", PlaybackSessionApplied)); }
+                else if (r == 0) GooseTelemetry.Log(GooseTelemetry.Level.Warning, "audio.session_playback_failed", ("reason", reason));
+            }
+            catch (System.Exception e) { GooseLog.Warn("Audio session: " + e.Message); }
+#endif
+        }
+
+        void Start()
+        {
+            EnsurePlaybackSession("start");
+            m_NextSessionCheck = Time.unscaledTime + 8f;
+        }
+
+        void Update()
+        {
+            if (Time.unscaledTime >= m_NextSessionCheck)
+            {
+                m_NextSessionCheck = Time.unscaledTime + 8f;
+                EnsurePlaybackSession("periodic");
+            }
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            if (!paused) EnsurePlaybackSession("resume");
+        }
+
+        void OnApplicationFocus(bool focus)
+        {
+            if (focus) EnsurePlaybackSession("focus");
+        }
+
+        [Header("Goose voice character (spoken lines; tune in play mode)")]
+        [Tooltip("Pitch multiplier on spoken lines (1 = as recorded; 1.1 = a little goosier).")]
+        [Range(0.7f, 1.5f)] public float voicePitch = 1.1f;
+        [Tooltip("High-pass cutoff on the goose's voice source in Hz (0 = off; 220 thins it toward a beak).")]
+        public float voiceHighPassHz = 220f;
+        [Tooltip("Distortion on the goose's voice source (0 = off; 0.1 = a little rasp).")]
+        [Range(0f, 0.6f)] public float voiceDistortion = 0.1f;
+
+        /// <summary>When the goose last honked (the yell detector ignores the mic for a moment after it).</summary>
+        public float LastHonkTime { get; private set; } = -99f;
+        public float LastHonkLength { get; private set; }
+
+        public void PlayGooseHonk(HonkKind kind, AudioSource source, float danger, float pitchOffset = 0f)
+        {
+            LastHonkTime = Time.time;
+            LastHonkLength = HonkLength(kind);
             if (source == null)
             {
                 PlayUI(kind == HonkKind.Angry ? angryHonkClip : honkClip, 0.8f, 1f);
                 return;
             }
             float volume = kind == HonkKind.Far ? 0.7f : (kind == HonkKind.Mid ? 0.85f : 1f);
-            float pitch = (1f + danger * 0.1f + Random.Range(-0.04f, 0.04f)) * SlowMoPitch;
+            float pitch = (1f + danger * 0.1f + pitchOffset + Random.Range(-0.04f, 0.04f)) * SlowMoPitch;
             if (UsingRealHonks)
             {
                 switch (kind)
@@ -406,6 +469,16 @@ namespace GooseBrawl
             source.PlayOneShot(clip, 0.8f * masterVolume);
         }
 
+        /// <summary>A throw leaving the hand: whoosh from the hand position.</summary>
+        public void PlayThrowWhoosh(Vector3 position)
+        {
+            var s = NextWorld(position);
+            var clip = Pick(m_Whooshes, ref m_WhooshIdx);
+            if (clip == null) return;
+            s.pitch = 1.15f * SlowMoPitch;
+            s.PlayOneShot(clip, 0.7f * masterVolume);
+        }
+
         public void PlayWhoosh(AudioSource source)
         {
             var clip = Pick(m_Whooshes, ref m_WhooshIdx);
@@ -420,6 +493,16 @@ namespace GooseBrawl
             if (source == null || clip == null) return;
             source.pitch = Random.Range(0.9f, 1.12f) * SlowMoPitch;
             source.PlayOneShot(clip, Mathf.Lerp(0.22f, 0.5f, intensity) * masterVolume);
+        }
+
+        /// <summary>A bread roll landing on the floor: a soft, low footstep.</summary>
+        public void PlayBreadThud(Vector3 position)
+        {
+            var s = NextWorld(position);
+            var clip = Pick(m_Footsteps, ref m_FootstepIdx);
+            if (clip == null) return;
+            s.pitch = 0.78f * SlowMoPitch;
+            s.PlayOneShot(clip, 0.45f * masterVolume);
         }
 
         /// <summary>Flap-dash launch: push-off, wing and air, layered.</summary>

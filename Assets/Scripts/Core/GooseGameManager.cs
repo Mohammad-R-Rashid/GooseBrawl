@@ -51,6 +51,14 @@ namespace GooseBrawl
         [Tooltip("Standing perfectly still: after this many seconds the egg starts creeping off anyway.")]
         public float stillCreepAfter = 10f;
 
+        [Header("Rounds")]
+        [Tooltip("Survive this long and the goose gives up (the win). Demo-tunable.")]
+        public float outlastSeconds = 45f;
+        [Tooltip("A missed lunge counts as a DODGE when the player moved at least this far during it (meters).")]
+        public float dodgeDistance = 0.35f;
+        [Tooltip("Seconds of survival before another bread can be thrown.")]
+        public float breadRechargeSeconds = 20f;
+
         public GooseGameState State { get; private set; } = GooseGameState.Boot;
         public event Action<GooseGameState> StateChanged;
 
@@ -72,6 +80,11 @@ namespace GooseBrawl
         public MaterialLibrary Materials { get; private set; }
         public ChaosAudioController Chaos { get; private set; }
         public CinematicLookController Look { get; private set; }
+        public PerfProbe Perf { get; private set; }
+        public PerfBenchmark Bench { get; private set; }
+        public GooseBrainClient Brain { get; private set; }
+        public GoosePersona Persona { get; private set; }
+        public YellDetector Yell { get; private set; }
 
         public NestController Nest { get; private set; }
         public GooseChaseController Goose { get; private set; }
@@ -81,6 +94,19 @@ namespace GooseBrawl
         /// <summary>The goose exists and is on its way (fly-in / glare) or chasing: the locator should be live.</summary>
         public bool GooseLive => Goose != null && (State == GooseGameState.EggStolen || ChaseActive);
         public int RoundsThisSession { get; private set; }
+        /// <summary>Automation: skip the first-run coaching card once (benchmark / smoke).</summary>
+        public bool SkipCoachingOnce { get; set; }
+        public int DodgeCount { get; private set; }
+        /// <summary>The last round ended with the goose giving up.</summary>
+        public bool LastRoundWon { get; private set; }
+        float m_BenchHoldSince = -1f;
+        bool m_Taunted;
+        Vector3 m_LungeStartPos;
+        GooseBrainClient.LineResult m_IntroLine;
+        BreadController m_Bread;
+        float m_BreadReadyAt;
+        public int BreadsThrown { get; private set; }
+        static readonly Vector3 k_ThrowHandLocal = new Vector3(0.06f, -0.14f, 0.44f);
 
         Coroutine m_FlowRoutine;
         ShadowCatcher m_GooseCatcher, m_NestCatcher;
@@ -90,7 +116,8 @@ namespace GooseBrawl
 
         static readonly string[] k_FirstLines = { "OOPS.\nTHERE GOES BREAKFAST.", "BUTTERFINGERS.", "WHOOPS.\nNO BREAKFAST.", "OH NO." };
         static readonly string[] k_SecondLines = { "THE GOOSE HEARD THAT.", "IT HEARD THAT.", "SOMETHING IS HONKING.", "THE GOOSE HAS NOTICED." };
-        static readonly string[] k_GameOverTitles = { "THE GOOSE\nGOT YOU", "PECKED.", "HONKED\nTO DEATH", "GOOSE 1\nYOU 0", "YOU GOT\nGOOSED", "NO BREAKFAST\nFOR YOU" };
+        static readonly string[] k_LossTitles = { "{0}\nGOT YOU", "GOOSED\nBY {0}", "{0} 1\nYOU 0", "HONKED\nTO DEATH", "PECKED\nBY {0}.", "NO BREAKFAST\nFOR YOU" };
+        static readonly string[] k_WinTitles = { "YOU OUTLASTED\n{0}", "{0}\nGAVE UP", "BREAKFAST\nIS SAFE." };
 
         void Awake()
         {
@@ -118,6 +145,11 @@ namespace GooseBrawl
             Materials = Resolve<MaterialLibrary>();
             Chaos = Resolve<ChaosAudioController>();
             Look = Resolve<CinematicLookController>();
+            Perf = Resolve<PerfProbe>();
+            Bench = Resolve<PerfBenchmark>();
+            Brain = Resolve<GooseBrainClient>();
+            Persona = Resolve<GoosePersona>();
+            Yell = Resolve<YellDetector>();
             Mock = Resolve<MockARController>(optional: true);
             if (UseMockAR && Mock == null) Mock = gameObject.AddComponent<MockARController>();
         }
@@ -139,6 +171,11 @@ namespace GooseBrawl
             State = GooseGameState.Boot;
             StateChanged?.Invoke(State);
             UI.ShowStart(Score.BestScore, Score.BestTime, UseMockAR);
+            if (Yell != null)
+            {
+                Yell.Yelled += OnPlayerYelled;
+                Yell.YellAudioReady += OnYellAudio;
+            }
         }
 
         void OnDestroy()
@@ -158,7 +195,20 @@ namespace GooseBrawl
                     SetState(Goose.DistanceToPlayer < dangerDistance ? GooseGameState.Danger : GooseGameState.Chasing);
             }
             if (ChaseActive)
-                UI.UpdateHUD(Score.SurvivalTime, Goose != null ? Goose.HonkCount : 0, Score.BestTime);
+            {
+                UI.UpdateHUD(Score.SurvivalTime, Goose != null ? Goose.HonkCount : 0, DodgeCount, Score.BestTime);
+                if (!IsPaused && Goose != null)
+                {
+                    if (!m_Taunted && Score.SurvivalTime >= 10f && Goose.Voice != null)
+                    {
+                        m_Taunted = true;
+                        Goose.Voice.SayBeat(GooseLines.Beat.Taunt10, EventPayload());
+                    }
+                    if (Score.SurvivalTime >= outlastSeconds && !(Bench != null && Bench.Running)) OnGooseGaveUp();
+                }
+                bool breadVisible = Goose != null && !Goose.FlyingIn && !Goose.Glaring && m_Bread == null && !IsPaused;
+                UI.SetBread(breadVisible, Score.SurvivalTime >= m_BreadReadyAt, m_BreadReadyAt - Score.SurvivalTime);
+            }
 
             bool showTracking = !Player.TrackingGood && State != GooseGameState.Boot && State != GooseGameState.GameOver && !IsPaused;
             UI.SetTrackingWarning(showTracking, showTracking ? AR.TrackingHint() : null);
@@ -166,9 +216,22 @@ namespace GooseBrawl
             if (State == GooseGameState.EggStolen && RoundsThisSession > 0 && GameInput.TryGetTap(out var tap) && !GameInput.IsPointerOverUI(tap))
                 m_SkipRequested = true;
 
+            // Hidden benchmark trigger: three fingers held on the title screen for 1.5 s.
+            if (State == GooseGameState.Boot && Bench != null && !Bench.Running)
+            {
+                if (GameInput.TouchCount() >= 3)
+                {
+                    if (m_BenchHoldSince < 0f) m_BenchHoldSince = Time.unscaledTime;
+                    else if (Time.unscaledTime - m_BenchHoldSince > 1.5f) { m_BenchHoldSince = -1f; Bench.Begin(); }
+                }
+                else m_BenchHoldSince = -1f;
+            }
+
             if (UseMockAR)
             {
                 if (GameInput.RestartPressed() && State == GooseGameState.GameOver) OnRunAgainPressed();
+                if (GameInput.BreadPressed()) OnBreadPressed();
+                if (GameInput.YellPressed() && Yell != null && ChaseActive) Yell.SimulateYell();
                 if (GameInput.SpacePressed())
                 {
                     if (State == GooseGameState.Boot) OnStartPressed();
@@ -192,12 +255,16 @@ namespace GooseBrawl
             if (State != GooseGameState.Boot) return;
             Audio.PlayStart();
             Haptics.Light();
-            if (Score.GamesPlayed == 0 && !m_CoachingShown)
+            Persona.EnsureFallback(Score.GamesPlayed);
+            BeginBrainSession();
+            if (Yell != null) Yell.WarmUpPermission();
+            if (Score.GamesPlayed == 0 && !m_CoachingShown && !SkipCoachingOnce)
             {
                 m_CoachingShown = true;
                 UI.ShowCoaching(() => StartFlow(ScanRoutine()));
                 return;
             }
+            SkipCoachingOnce = false;
             StartFlow(ScanRoutine());
         }
 
@@ -305,6 +372,9 @@ namespace GooseBrawl
             if (State != GooseGameState.EggReady) return;
             StartFlow(StealRoutine());
         }
+
+        /// <summary>Automation: skip ahead through the steal beat (benchmark / smoke).</summary>
+        public void RequestSkip() => m_SkipRequested = true;
 
         /// <summary>Wait, but in repeat rounds a tap anywhere skips ahead.</summary>
         IEnumerator Beat(float seconds)
@@ -493,7 +563,7 @@ namespace GooseBrawl
             float flyHeight = Goose.flyHeight;
             Vector3 start = FindFlyInStart(landing, flyDir, ref flyHeight);
 
-            UI.ShowMessage("HERE IT COMES.", 2f, UITheme.Yolk);
+            UI.ShowMessage(Persona.Returning ? Persona.Name + "\nIS BACK." : "HERE COMES\n" + Persona.Name + ".", 2f, UITheme.Yolk);
             Danger.SpawnEffect();
             Goose.FlyIn(start, landing, FloorY, flyHeight, BeginChase);
         }
@@ -563,6 +633,20 @@ namespace GooseBrawl
             if (State == GooseGameState.GameOver) return;
             Score.StartRun();
             RoundsThisSession++;
+            DodgeCount = 0;
+            m_Taunted = false;
+            LastRoundWon = false;
+            BreadsThrown = 0;
+            m_BreadReadyAt = 0f;
+            if (m_Bread != null) { Destroy(m_Bread.gameObject); m_Bread = null; }
+            if (Yell != null) Yell.BeginListening();
+            if (Perf != null && !(Bench != null && Bench.Running))
+            {
+                Perf.BeginRound("game.round", "game.round", new System.Collections.Generic.Dictionary<string, string>
+                {
+                    { "round", RoundsThisSession.ToString() }, { "mock_ar", UseMockAR.ToString() }, { "device_model", SystemInfo.deviceModel }
+                });
+            }
             SetState(GooseGameState.Chasing);
             UI.ShowHUD();
             UI.ShowMessage("TURN AROUND\nAND RUN!", 2.4f, UITheme.Danger);
@@ -571,6 +655,7 @@ namespace GooseBrawl
 
         public void NotifyLungeStarted()
         {
+            m_LungeStartPos = Player.FlatPosition;
             if (ChaseActive) SetState(GooseGameState.JumpAttack);
         }
 
@@ -580,10 +665,34 @@ namespace GooseBrawl
             else if (State == GooseGameState.JumpAttack)
             {
                 SetState(GooseGameState.Chasing);
-                // The player's win moment: a near miss.
-                UI.ShowMessage("MISSED!", 0.8f, UITheme.Yolk);
-                Haptics.Transient(0.5f, 0.8f);
+                float moved = Vector3.Distance(Player.FlatPosition, m_LungeStartPos);
+                if (moved >= dodgeDistance) StartCoroutine(DodgeMoment(moved));
+                else
+                {
+                    // The player's win moment: a near miss.
+                    UI.ShowMessage("MISSED!", 0.8f, UITheme.Yolk);
+                    Haptics.Transient(0.5f, 0.8f);
+                }
             }
+        }
+
+        /// <summary>A sidestepped lunge: hit-stop, DODGED!, feathers, a sore-loser line. Counted on the HUD and the results card.</summary>
+        IEnumerator DodgeMoment(float moved)
+        {
+            DodgeCount++;
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "dodge", ("moved_m", moved), ("dodges", DodgeCount), ("survival_s", Score.SurvivalTime));
+            if (Time.timeScale > 0.99f)
+            {
+                Time.timeScale = 0.05f;
+                yield return new WaitForSecondsRealtime(0.08f);
+                if (State != GooseGameState.GameOver) Time.timeScale = 1f;
+            }
+            UI.ShowMessage("DODGED!", 0.9f, UITheme.Yolk);
+            Danger.Flash(new Color(1f, 0.95f, 0.8f, 0.15f), 0.15f);
+            if (Look != null) Look.Impact(0.4f);
+            if (Goose != null) Goose.Visual.FeatherBurst(10);
+            Haptics.Transient(0.7f, 0.9f);
+            if (Goose != null && Goose.Voice != null) Goose.Voice.SayBeat(GooseLines.Beat.Dodge, EventPayload());
         }
 
         public void OnPlayerCaught()
@@ -591,12 +700,29 @@ namespace GooseBrawl
             if (State == GooseGameState.GameOver) return;
             Score.EndRun();
             SetState(GooseGameState.GameOver);
+            LastRoundWon = false;
+            Persona.RecordLoss(Score.SurvivalTime);
+            UI.SetBread(false, false, 0f);
+            if (Yell != null) Yell.EndListening();
+            EndRoundTelemetry("caught");
             UI.SetLocatorTarget(null);
             Audio.PlayCaught(Goose != null ? Goose.transform.position : Player.FlatPosition);
             Haptics.Play(HapticsService.Pattern.Catch);
             Danger.CaughtEffect();
             if (Goose != null) Goose.OnCaughtPlayer();
             StartFlow(GameOverRoutine());
+        }
+
+        void EndRoundTelemetry(string outcome)
+        {
+            if (Perf == null || !Perf.RoundOpen) return;
+            var data = new System.Collections.Generic.Dictionary<string, object>
+            {
+                { "survival_s", Score.SurvivalTime }, { "honks", Goose != null ? Goose.HonkCount : 0 }, { "dashes", Goose != null ? Goose.DashCount : 0 },
+                { "lunges", Goose != null && Goose.Attack != null ? Goose.Attack.LungeCount : 0 }, { "best_s", Score.BestTime }, { "new_best", Score.LastRunWasBest },
+                { "dodges", DodgeCount }, { "goose", Persona != null ? Persona.Name : "" }, { "lines_from_brain", Brain != null ? Brain.LinesFromBrain : 0 }, { "voice_fallbacks", Goose != null && Goose.Voice != null ? Goose.Voice.FallbackCount : 0 }
+            };
+            Perf.EndRound(outcome, data);
         }
 
         IEnumerator GameOverRoutine()
@@ -611,14 +737,181 @@ namespace GooseBrawl
             yield return new WaitForSecondsRealtime(0.35f);
             Audio.PlayGameOver();
             Haptics.Notify(false);
-            string title = k_GameOverTitles[UnityEngine.Random.Range(0, k_GameOverTitles.Length)];
-            UI.ShowGameOver(title, Score.SurvivalTime, Goose != null ? Goose.HonkCount : 0, Score.BestTime, Score.BestScore, Score.LastRunWasBest);
+            string title = string.Format(k_LossTitles[Mathf.Max(0, RoundsThisSession - 1) % k_LossTitles.Length], Persona.Name);
+            UI.ShowGameOver(title, Score.SurvivalTime, Goose != null ? Goose.HonkCount : 0, DodgeCount, Score.BestTime, Score.BestScore, Score.LastRunWasBest, false, Persona.Grudge > 1 ? Persona.GrudgeLine() : "");
+            if (Goose != null && Goose.Voice != null) Goose.Voice.SayBeat(GooseLines.Beat.Caught, EventPayload(), null, 2.5f);
             if (Score.LastRunWasBest)
             {
                 yield return new WaitForSecondsRealtime(1.9f);
                 Audio.PlayNewBest();
                 Haptics.Play(HapticsService.Pattern.Success);
             }
+        }
+
+        /// <summary>The win: the goose gives up. Same terminal state, a different card.</summary>
+        public void OnGooseGaveUp()
+        {
+            if (State == GooseGameState.GameOver || !ChaseActive) return;
+            Score.EndRun();
+            SetState(GooseGameState.GameOver);
+            LastRoundWon = true;
+            Persona.RecordWin(Score.SurvivalTime);
+            if (Yell != null) Yell.EndListening();
+            EndRoundTelemetry("outlasted");
+            UI.SetLocatorTarget(null);
+            UI.SetBread(false, false, 0f);
+            Danger.ResetEffects();
+            if (Goose != null) Goose.GiveUp();
+            StartFlow(WinRoutine());
+        }
+
+        IEnumerator WinRoutine()
+        {
+            UI.ShowMessage("THE GOOSE\nHAS GIVEN UP.", 2.4f, UITheme.Yolk);
+            Haptics.Play(HapticsService.Pattern.Success);
+            if (Look != null) Look.SetRage(false);
+            yield return new WaitForSecondsRealtime(1.2f);
+            Audio.PlayNewBest();
+            yield return new WaitForSecondsRealtime(1.4f);
+            string title = string.Format(k_WinTitles[Mathf.Max(0, RoundsThisSession - 1) % k_WinTitles.Length], Persona.Name);
+            UI.ShowGameOver(title, Score.SurvivalTime, Goose != null ? Goose.HonkCount : 0, DodgeCount, Score.BestTime, Score.BestScore, Score.LastRunWasBest, true, "");
+            if (Goose != null && Goose.Voice != null) Goose.Voice.SayBeat(GooseLines.Beat.Outlasted, EventPayload(), null, 2.5f);
+            if (Score.LastRunWasBest)
+            {
+                yield return new WaitForSecondsRealtime(1.9f);
+                Haptics.Play(HapticsService.Pattern.Success);
+            }
+        }
+
+        // ------------------------------------------------------------------ goose hooks (voice beats)
+        /// <summary>The goose landed and started glaring: first words (pre-voiced by the brain during the steal beat).</summary>
+        public void OnGooseGlareStarted()
+        {
+            if (Goose != null && Goose.Voice != null) Goose.Voice.SayPrepared(m_IntroLine, GooseLines.Beat.Intro);
+            m_IntroLine = null;
+        }
+
+        public void OnGooseRage()
+        {
+            if (Goose != null && Goose.Voice != null) Goose.Voice.SayBeat(GooseLines.Beat.Rage, EventPayload());
+        }
+
+        /// <summary>Warm the brain, get the goose's name and the pre-voiced intro. Fire-and-forget; offline is fine.</summary>
+        void BeginBrainSession()
+        {
+            m_IntroLine = null;
+            if (Brain == null) return;
+            StartCoroutine(Brain.StartSession(RoundsThisSession, Score.GamesPlayed, Score.BestTime, r =>
+            {
+                if (r == null) return;
+                Persona.ApplyFromBrain(r.Name, r.Title, r.Grudge, r.Female);
+                m_IntroLine = r.Intro;
+            }));
+        }
+
+        /// <summary>What the brain hears about the round with every beat.</summary>
+        public System.Collections.Generic.Dictionary<string, object> EventPayload()
+        {
+            return new System.Collections.Generic.Dictionary<string, object>
+            {
+                { "survival", Score.SurvivalTime }, { "honks", Goose != null ? Goose.HonkCount : 0 }, { "dodges", DodgeCount },
+                { "breads", Goose != null ? Goose.BreadsEaten : 0 }, { "tier", Goose != null ? Goose.Tier : 0 }, { "roundsThisSession", RoundsThisSession }
+            };
+        }
+
+        // ------------------------------------------------------------------ bread
+        public void OnBreadPressed()
+        {
+            if (!ChaseActive || IsPaused || Goose == null || m_Bread != null) return;
+            if (Goose.FlyingIn || Goose.Glaring || Goose.State == GooseState.JumpAttack || Goose.State == GooseState.Dash || Goose.State == GooseState.Eating) return;
+            if (Score.SurvivalTime < m_BreadReadyAt) { Haptics.Light(); return; }
+            var cam = Player.Cam;
+            Vector3 from = cam != null ? cam.transform.TransformPoint(k_ThrowHandLocal) : Player.Position;
+            Vector3 landing = FindBreadLanding();
+            landing.y = Goose.Movement.SampleFloor(landing);
+            m_Bread = BreadController.Create(Materials, from);
+            BreadsThrown++;
+            m_BreadReadyAt = Score.SurvivalTime + breadRechargeSeconds;
+            Audio.PlayThrowWhoosh(from);
+            Haptics.Transient(0.35f, 0.7f);
+            UI.ShowMessage("BREAD!", 0.7f, UITheme.Yolk);
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "bread.thrown", ("distance_m", Vector3.Distance(Player.FlatPosition, landing)), ("goose_distance", Goose.DistanceToPlayer), ("tier", Goose.Tier));
+            StartCoroutine(BreadRoutine(from, landing));
+        }
+
+        IEnumerator BreadRoutine(Vector3 from, Vector3 landing)
+        {
+            var bread = m_Bread;
+            using (var span = GooseTelemetry.StartSpan("bread.spawn", "throw"))
+            {
+                yield return null;
+            }
+            if (Goose != null) Goose.Distract(bread);
+            yield return bread.Throw(from, landing, FloorY, this);
+            if (Goose != null && Goose.State != GooseState.Distracted && Goose.State != GooseState.Eating) Goose.Distract(bread);
+            // Wait until eaten (or the round ends); the goose reports the eating itself.
+            float t = 0f;
+            while (bread != null && !bread.Eaten && t < 30f && ChaseActive) { t += Time.deltaTime; yield return null; }
+            if (bread != null && !bread.Eaten) Destroy(bread.gameObject);
+            if (m_Bread == bread) m_Bread = null;
+        }
+
+        /// <summary>Called by the goose when the roll is gone: a line, and the HUD knows it is angrier.</summary>
+        public void OnBreadEaten()
+        {
+            UI.ShowMessage("ANGRIER.", 0.9f, UITheme.Danger);
+            Haptics.Transient(0.5f, 0.6f);
+            if (Look != null) Look.Impact(0.25f);
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "bread.eaten", ("tier", Goose != null ? Goose.Tier : 0), ("breads", Goose != null ? Goose.BreadsEaten : 0));
+            if (Goose != null && Goose.Voice != null) Goose.Voice.SayBeat(GooseLines.Beat.Bread, EventPayload());
+        }
+
+        /// <summary>
+        /// Bread lands on the far side of the goose (away from the player): eating it buys distance and time, and the
+        /// goose has to come back. Falls back to beside the goose, never next to the player.
+        /// </summary>
+        Vector3 FindBreadLanding()
+        {
+            Vector3 player = Player.FlatPosition;
+            Vector3 g = Goose.transform.position; g.y = FloorY;
+            Vector3 away = g - player; away.y = 0f;
+            away = away.sqrMagnitude > 1e-3f ? away.normalized : Player.FlatForward;
+            Vector3[] offsets =
+            {
+                away * 1.6f, away * 1.2f,
+                Quaternion.AngleAxis(45f, Vector3.up) * away * 1.4f, Quaternion.AngleAxis(-45f, Vector3.up) * away * 1.4f,
+                Quaternion.AngleAxis(90f, Vector3.up) * away * 1.2f, Quaternion.AngleAxis(-90f, Vector3.up) * away * 1.2f,
+                away * 0.8f
+            };
+            foreach (var o in offsets)
+            {
+                Vector3 p = g + o; p.y = FloorY;
+                if (Vector3.Distance(new Vector3(p.x, 0f, p.z), new Vector3(player.x, 0f, player.z)) < 1.3f) continue;
+                if (Goose.Avoidance.FloorOk(p) && Goose.Avoidance.IsPositionFree(p)) return p;
+            }
+            Vector3 fb = g + away * 0.8f; fb.y = FloorY;
+            return fb;
+        }
+
+        // ------------------------------------------------------------------ yell
+        void OnPlayerYelled(float db)
+        {
+            if (!ChaseActive || IsPaused || Goose == null) return;
+            using (var span = GooseTelemetry.StartSpan("yell.detect", "flinch"))
+            {
+                span.SetData("level_db", db);
+                if (Goose.Flinch())
+                {
+                    UI.ShowMessage("IT HEARD YOU.", 0.9f);
+                    Danger.Shake(0.3f);
+                }
+            }
+        }
+
+        void OnYellAudio(byte[] wav)
+        {
+            if (Goose == null || Goose.Voice == null || State == GooseGameState.GameOver) return;
+            Goose.Voice.SayBeat(GooseLines.Beat.Yell, EventPayload(), wav, 3.5f);
         }
 
         public void OnRunAgainPressed()
@@ -629,6 +922,7 @@ namespace GooseBrawl
             Danger.ResetEffects();
             Audio.PlayStart();
             Haptics.Light();
+            BeginBrainSession();
             if (Nest != null)
             {
                 Nest.ResetEgg();
@@ -649,6 +943,7 @@ namespace GooseBrawl
             ClearGoose();
             Danger.ResetEffects();
             Haptics.Light();
+            BeginBrainSession();
             if (Nest != null)
             {
                 Nest.Egg.ClearCrackedEgg();
@@ -685,6 +980,7 @@ namespace GooseBrawl
             IsPaused = true;
             if (Goose != null) Goose.Paused = true;
             Score.Pause();
+            if (Yell != null) Yell.EndListening();
             UI.ShowPaused();
         }
 
@@ -694,6 +990,7 @@ namespace GooseBrawl
             IsPaused = false;
             if (Goose != null) Goose.Paused = false;
             Score.Resume();
+            if (Yell != null && ChaseActive) Yell.BeginListening();
             UI.HidePaused();
             Haptics.Light();
         }

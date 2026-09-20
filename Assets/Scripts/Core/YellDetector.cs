@@ -1,0 +1,238 @@
+using System;
+using System.Collections;
+using UnityEngine;
+
+namespace GooseBrawl
+{
+    /// <summary>
+    /// Listens on the microphone during the chase and detects a shout: a loud burst well above the adaptive noise
+    /// floor. The reaction is local and instant (the goose flinches); the 2-second window around the shout is encoded
+    /// as WAV and sent to the brain so the goose can answer what was actually said. Gated for a moment after the
+    /// goose's own honks (the phone speaker would otherwise trigger it) and while it speaks. Everything it decides is
+    /// logged with the levels, which is how the honk gate was tuned.
+    /// </summary>
+    public class YellDetector : MonoBehaviour
+    {
+        [Tooltip("Master switch (turn off if the play-and-record session makes the phone too quiet).")]
+        public bool yellEnabled = true;
+        [Tooltip("How far above the noise floor (dB) a shout must be.")]
+        public float thresholdDb = 15f;
+        [Tooltip("Absolute minimum level (dBFS) regardless of the floor.")]
+        public float absoluteFloorDb = -20f;
+        [Tooltip("Listen on the Editor's microphone too (off: the Editor mock and the smoke test use SimulateYell / the Y key).")]
+        public bool listenInEditor = false;
+        public float minLoudSeconds = 0.12f;
+        public float cooldownSeconds = 6f;
+        [Tooltip("Ignore the mic this long after a goose honk plays (the speaker is right next to the mic).")]
+        public float honkGateSeconds = 0.5f;
+        public float floorSeconds = 3f;
+        public int sampleRate = 16000;
+        public float captureBefore = 0.3f;
+        public float captureAfter = 1.7f;
+
+        public event Action<float> Yelled;
+        public event Action<byte[]> YellAudioReady;
+
+        public bool Listening { get; private set; }
+        public bool Available { get; private set; }
+        public float LevelDb { get; private set; } = -80f;
+        public float FloorDb { get; private set; } = -60f;
+        public int YellCount { get; private set; }
+        public int GatedCount { get; private set; }
+        public float LastYellTime { get; private set; } = -99f;
+
+        AudioClip m_Clip;
+        int m_LastPos;
+        float m_LoudSince = -1f;
+        float[] m_Buffer = new float[4096];
+        const int ClipSeconds = 10;
+        bool m_Permitted;
+
+        /// <summary>Trigger the OS microphone prompt on the title screen so it never interrupts the chase.</summary>
+        public void WarmUpPermission()
+        {
+            if (!yellEnabled || m_Permitted) return;
+            m_Permitted = true;
+            try
+            {
+                if (Microphone.devices == null || Microphone.devices.Length == 0) { Available = false; GooseTelemetry.Log(GooseTelemetry.Level.Info, "yell.no_microphone"); return; }
+                var c = Microphone.Start(null, false, 1, sampleRate);
+                Microphone.End(null);
+                Available = c != null;
+                var mgr = GooseGameManager.Instance;
+                if (mgr != null && mgr.Audio != null) mgr.Audio.EnsurePlaybackSession("permission_warmup");
+            }
+            catch (Exception e)
+            {
+                Available = false;
+                GooseTelemetry.Log(GooseTelemetry.Level.Warning, "yell.mic_unavailable", ("error", e.Message));
+            }
+        }
+
+        public void BeginListening()
+        {
+            if (!yellEnabled || Listening) return;
+            if (Application.isEditor && !listenInEditor) return;
+            try
+            {
+                if (Microphone.devices == null || Microphone.devices.Length == 0) { Available = false; return; }
+                m_Clip = Microphone.Start(null, true, ClipSeconds, sampleRate);
+                if (m_Clip == null) { Available = false; return; }
+                Available = true;
+                Listening = true;
+                m_LastPos = 0;
+                m_LoudSince = -1f;
+                FloorDb = -50f;
+                if (PerfProbe.Instance != null) PerfProbe.Instance.MicListening = true;
+                GooseTelemetry.Log(GooseTelemetry.Level.Info, "yell.listening", ("rate", sampleRate), ("device", Microphone.devices[0]));
+            }
+            catch (Exception e)
+            {
+                Available = false;
+                GooseTelemetry.Log(GooseTelemetry.Level.Warning, "yell.start_failed", ("error", e.Message));
+            }
+        }
+
+        public void EndListening()
+        {
+            if (!Listening) return;
+            Listening = false;
+            try { Microphone.End(null); } catch { }
+            m_Clip = null;
+            if (PerfProbe.Instance != null) PerfProbe.Instance.MicListening = false;
+            var mgr = GooseGameManager.Instance;
+            if (mgr != null && mgr.Audio != null) mgr.Audio.EnsurePlaybackSession("mic_end");
+        }
+
+        void OnDisable() { EndListening(); }
+
+        void Update()
+        {
+            if (!Listening || m_Clip == null) return;
+            int pos;
+            try { pos = Microphone.GetPosition(null); } catch { return; }
+            int total = m_Clip.samples;
+            int n = pos - m_LastPos;
+            if (n < 0) n += total;
+            if (n <= 0 || n > total) return;
+            // Read the newest samples (two chunks across the wrap).
+            if (m_Buffer.Length < n) m_Buffer = new float[Mathf.NextPowerOfTwo(n)];
+            double sum = 0; int count = 0;
+            int first = Mathf.Min(n, total - m_LastPos);
+            if (first > 0 && m_Clip.GetData(m_Buffer, m_LastPos))
+            {
+                for (int i = 0; i < first; i++) { float v = m_Buffer[i]; sum += v * v; }
+                count += first;
+            }
+            int rest = n - first;
+            if (rest > 0 && m_Clip.GetData(m_Buffer, 0))
+            {
+                for (int i = 0; i < rest; i++) { float v = m_Buffer[i]; sum += v * v; }
+                count += rest;
+            }
+            m_LastPos = pos;
+            if (count == 0) return;
+            float rms = Mathf.Sqrt((float)(sum / count));
+            LevelDb = 20f * Mathf.Log10(rms + 1e-6f);
+
+            float dt = Time.unscaledDeltaTime;
+            bool loud = LevelDb > FloorDb + thresholdDb && LevelDb > absoluteFloorDb;
+            if (!loud) FloorDb = Mathf.Lerp(FloorDb, LevelDb, Mathf.Clamp01(dt / floorSeconds));
+            else FloorDb = Mathf.Lerp(FloorDb, LevelDb, Mathf.Clamp01(dt / (floorSeconds * 12f)));
+
+            if (!loud) { m_LoudSince = -1f; return; }
+            if (m_LoudSince < 0f) m_LoudSince = Time.unscaledTime;
+            if (Time.unscaledTime - m_LoudSince < minLoudSeconds) return;
+            if (Time.unscaledTime - LastYellTime < cooldownSeconds) return;
+
+            var mgr = GooseGameManager.Instance;
+            string gate = null;
+            if (Time.timeScale < 0.99f) gate = "slowmo";
+            else if (mgr != null && mgr.Audio != null && Time.time - mgr.Audio.LastHonkTime < mgr.Audio.LastHonkLength + honkGateSeconds) gate = "honk";
+            else if (mgr != null && mgr.Goose != null && mgr.Goose.Voice != null && mgr.Goose.Voice.Speaking) gate = "goose_speaking";
+            if (gate != null)
+            {
+                GatedCount++;
+                m_LoudSince = -1f;
+                GooseTelemetry.Increment("yell.gated", 1, ("reason", gate));
+                GooseTelemetry.Log(GooseTelemetry.Level.Info, "yell.gated", ("reason", gate), ("level_db", LevelDb), ("floor_db", FloorDb), ("since_honk_s", mgr != null && mgr.Audio != null ? Time.time - mgr.Audio.LastHonkTime : -1f));
+                return;
+            }
+            Trigger(false);
+        }
+
+        void Trigger(bool simulated)
+        {
+            LastYellTime = Time.unscaledTime;
+            YellCount++;
+            m_LoudSince = -1f;
+            GooseTelemetry.Log(GooseTelemetry.Level.Info, "yell.trigger", ("level_db", LevelDb), ("floor_db", FloorDb), ("simulated", simulated), ("count", YellCount));
+            GooseTelemetry.Increment("yell.trigger", 1, ("simulated", simulated.ToString()));
+            Yelled?.Invoke(LevelDb);
+            StartCoroutine(CaptureWindow(simulated));
+        }
+
+        /// <summary>Editor / smoke test: a synthetic shout through the same path.</summary>
+        public void SimulateYell()
+        {
+            LevelDb = -8f;
+            Trigger(true);
+        }
+
+        IEnumerator CaptureWindow(bool simulated)
+        {
+            yield return new WaitForSecondsRealtime(captureAfter);
+            byte[] wav = null;
+            try
+            {
+                int samples = Mathf.RoundToInt((captureBefore + captureAfter) * sampleRate);
+                var data = new float[samples];
+                if (simulated || m_Clip == null || !Listening)
+                {
+                    var rnd = new System.Random(42);
+                    for (int i = 0; i < samples; i++)
+                    {
+                        float env = Mathf.Sin(Mathf.PI * i / (float)samples);
+                        data[i] = ((float)rnd.NextDouble() * 2f - 1f) * 0.5f * env * (0.6f + 0.4f * Mathf.Sin(i * 0.02f));
+                    }
+                }
+                else
+                {
+                    int pos = Microphone.GetPosition(null);
+                    int total = m_Clip.samples;
+                    int start = pos - samples;
+                    if (start < 0) start += total;
+                    int first = Mathf.Min(samples, total - start);
+                    var tmp = new float[Mathf.Max(first, samples - first)];
+                    if (first > 0 && m_Clip.GetData(tmp, start)) Array.Copy(tmp, 0, data, 0, first);
+                    int rest = samples - first;
+                    if (rest > 0 && m_Clip.GetData(tmp, 0)) Array.Copy(tmp, 0, data, first, rest);
+                }
+                wav = EncodeWav(data, sampleRate);
+            }
+            catch (Exception e)
+            {
+                GooseTelemetry.CaptureException(e, "yell.capture");
+            }
+            if (wav != null) YellAudioReady?.Invoke(wav);
+        }
+
+        public static byte[] EncodeWav(float[] samples, int rate)
+        {
+            int bytes = samples.Length * 2;
+            var buf = new byte[44 + bytes];
+            void Str(int o, string s) { for (int i = 0; i < s.Length; i++) buf[o + i] = (byte)s[i]; }
+            void U32(int o, uint v) { buf[o] = (byte)v; buf[o + 1] = (byte)(v >> 8); buf[o + 2] = (byte)(v >> 16); buf[o + 3] = (byte)(v >> 24); }
+            void U16(int o, ushort v) { buf[o] = (byte)v; buf[o + 1] = (byte)(v >> 8); }
+            Str(0, "RIFF"); U32(4, (uint)(36 + bytes)); Str(8, "WAVE"); Str(12, "fmt "); U32(16, 16); U16(20, 1); U16(22, 1);
+            U32(24, (uint)rate); U32(28, (uint)(rate * 2)); U16(32, 2); U16(34, 16); Str(36, "data"); U32(40, (uint)bytes);
+            int p = 44;
+            for (int i = 0; i < samples.Length; i++)
+            {
+                short s = (short)Mathf.Clamp(Mathf.RoundToInt(samples[i] * 32767f), -32768, 32767);
+                buf[p++] = (byte)s; buf[p++] = (byte)(s >> 8);
+            }
+            return buf;
+        }
+    }
+}

@@ -14,6 +14,8 @@ namespace GooseBrawl.Editor
     {
         const string CommandPath = "Library/GooseBrawlCommand.txt";
         public const string SmokeFlag = "GooseBrawl.SmokeTest";
+        public const string BenchFlag = "GooseBrawl.Bench";
+        public const string SmokeOnlineFlag = "GooseBrawl.SmokeOnline";
         static double s_NextPoll;
 
         static GooseBrawlRemote()
@@ -39,7 +41,7 @@ namespace GooseBrawl.Editor
             }
             if (string.IsNullOrEmpty(cmd)) return;
             // Commands that need edit mode: leave play mode first and re-queue.
-            if ((cmd == "play" || cmd == "smoke" || cmd == "setup" || cmd == "build") && EditorApplication.isPlaying)
+            if ((cmd == "play" || cmd == "smoke" || cmd == "smokeonline" || cmd == "bench" || cmd == "setup" || cmd == "build") && EditorApplication.isPlaying)
             {
                 EditorApplication.ExitPlaymode();
                 File.WriteAllText(CommandPath, cmd);
@@ -55,8 +57,23 @@ namespace GooseBrawl.Editor
                     UsePhoneResolution();
                     EditorApplication.EnterPlaymode();
                     break;
+                case "smokeonline":
+                    SessionState.SetBool(SmokeFlag, true);
+                    SessionState.SetBool(SmokeOnlineFlag, true);
+                    GooseBrawlSetup.OpenScene();
+                    UsePhoneResolution();
+                    EditorApplication.EnterPlaymode();
+                    break;
                 case "smoke":
                     SessionState.SetBool(SmokeFlag, true);
+                    SessionState.SetBool(SmokeOnlineFlag, false);
+                    GooseBrawlSetup.OpenScene();
+                    UsePhoneResolution();
+                    EditorApplication.EnterPlaymode();
+                    break;
+                case "bench":
+                    SessionState.SetBool(SmokeFlag, false);
+                    SessionState.SetBool(BenchFlag, true);
                     GooseBrawlSetup.OpenScene();
                     UsePhoneResolution();
                     EditorApplication.EnterPlaymode();
@@ -75,6 +92,20 @@ namespace GooseBrawl.Editor
                     break;
                 case "build":
                     GooseBrawlSetup.BuildIOS();
+                    break;
+                case "sentry":
+                    GooseBrawlSetup.ConfigureSentry();
+                    break;
+                case "pipeline":
+                    GooseBrawlSetup.ConfigureRenderPipeline();
+                    AssetDatabase.SaveAssets();
+                    break;
+                case "audio":
+                    GooseBrawlSetup.ConfigureAudioImports();
+                    AssetDatabase.SaveAssets();
+                    break;
+                case "export":
+                    GooseVoiceExport.Export();
                     break;
                 case "settings":
                     GooseBrawlSetup.ConfigurePlayerSettings();
@@ -104,6 +135,12 @@ namespace GooseBrawl.Editor
                 SessionState.SetBool(SmokeFlag, false);
                 var go = new GameObject("GooseSmokeTest");
                 go.AddComponent<GooseSmokeTest>();
+            }
+            if (state == PlayModeStateChange.EnteredPlayMode && SessionState.GetBool(BenchFlag, false))
+            {
+                SessionState.SetBool(BenchFlag, false);
+                var go = new GameObject("GooseBenchStarter");
+                go.AddComponent<GooseBenchStarter>();
             }
         }
     }

@@ -28,6 +28,8 @@ namespace GooseBrawl
         public bool enableVerticalPlanes = true;
         [Tooltip("ARKit scene reconstruction (LiDAR). Falls back to planes when unsupported.")]
         public bool enableEnvironmentMeshing = true;
+        [Tooltip("Mesh density 0-1 (0.35: fewer collider rebuilds per second, same walls for the goose).")]
+        [Range(0.1f, 1f)] public float meshDensity = 0.35f;
         [Tooltip("Environment depth occlusion so the goose can hide behind real furniture.")]
         public bool enableOcclusion = true;
         [Tooltip("ARKit environment texturing: real reflections on the egg and the goose.")]
@@ -131,7 +133,7 @@ namespace GooseBrawl
 
             if (enableEnvironmentMeshing && meshManager != null)
             {
-                try { meshManager.enabled = true; }
+                try { meshManager.density = meshDensity; meshManager.enabled = true; }
                 catch (Exception e) { GooseLog.Warn("Environment meshing could not be enabled: " + e.Message); }
             }
 

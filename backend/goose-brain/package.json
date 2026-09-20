@@ -1,0 +1,32 @@
+{
+  "name": "goose-brain",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GOOSED. goose brain: a Cloudflare Agent (Durable Object) that remembers the player, writes the goose's lines with OpenAI and voices them with ElevenLabs.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "design-voice": "tsx scripts/design-voice.ts",
+    "pregen": "tsx scripts/pregen.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@sentry/cloudflare": "^10.75.0",
+    "agents": "^0.24.0",
+    "openai": "^6.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.135.0"
+  }
+}

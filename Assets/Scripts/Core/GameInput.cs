@@ -111,6 +111,41 @@ namespace GooseBrawl
 #endif
         }
 
+        /// <summary>Number of fingers currently on the screen (0 with a mouse).</summary>
+        public static int TouchCount()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var ts = Touchscreen.current;
+            if (ts == null) return 0;
+            int n = 0;
+            foreach (var t in ts.touches) if (t.press.isPressed) n++;
+            return n;
+#else
+            return Input.touchCount;
+#endif
+        }
+
+        /// <summary>Editor mock: B throws bread, Y simulates a shout.</summary>
+        public static bool BreadPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            return kb != null && kb.bKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.B);
+#endif
+        }
+
+        public static bool YellPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            return kb != null && kb.yKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.Y);
+#endif
+        }
+
         public static bool RestartPressed()
         {
 #if ENABLE_INPUT_SYSTEM

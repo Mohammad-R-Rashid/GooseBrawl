@@ -1,3 +1,22 @@
+- **Voice + brain + Sentry pass (this session) was built and verified in the Editor mock through the smoke test (offline and
+  against a local `wrangler dev` Worker in mock mode) and the Unity iOS export; no phone was connected.** Still to verify on the
+  iPhone 15 Pro: the microphone prompt and shout detection with the phone's own speaker (the honk gate), speaker volume while
+  the mic session is active (`Force IOS Speakers When Recording` is on; if the goose gets quiet, turn `YellDetector.yellEnabled`
+  off), the Sentry native iOS layer in the Xcode build, real frame measurements (draw calls read 0 in the Editor), and the benchmark.
+- **No OpenAI key by choice**: the brain runs in mock-text mode (the 84-line script, deterministic), so lines never react to what
+  you shouted and the goose's name comes from the persona bank. The ElevenLabs voices are live (free tier, 10k characters/month;
+  the deployed Worker caches every line for both voices in R2 so the script costs about 2.8k characters once; `POST /warm`
+  after a redeploy or a line change). `gpt-5.6-luna` / `gpt-transcribe`
+  were never exercised with a real key.
+- **Sentry is enabled** (Unity + Worker, one project). The Uptime monitor on `/health` must be created in the Sentry UI. The
+  ElevenLabs key was shared in a chat transcript: rotate it after the event. Sentry Profiling and Session Replay do not exist for Unity; the frame-level data
+  comes from `PerfProbe` through Tracing and Logs. Adaptive quality only steps down, and only on the device.
+- **Bread never uses physics**: it lands on the far side of the goose on free floor (falls back to beside it); on a cluttered
+  scan it may land inside something the goose then walks around. The goose ignores catches while it eats (by design).
+- **Release builds only**: development builds show Unity's console overlay on errors and cost frame time; `Goose Brawl > Build iOS
+  Xcode Project (Release)` + `xcodebuild -configuration Release` is the shipping path. Performance defaults are MSAA 2x,
+  1024 shadow map, 8 m shadow distance, LiDAR mesh density 0.35; the benchmark compares the heavier settings.
+- **The shout is amplitude-based**: any loud burst 15 dB over the room floor (and above -20 dBFS) counts; clapping works too.
 # Known Limitations
 
 - **This polish pass (rename to GOOSED., graphics, sound, haptics, gameplay, UI) was built and verified in the Editor mock,

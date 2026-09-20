@@ -34,6 +34,10 @@ namespace GooseBrawl
         LensDistortion m_Lens;
         ChromaticAberration m_CA;
         ColorAdjustments m_Color;
+        FilmGrain m_Grain;
+        Bloom m_Bloom;
+        bool m_ReducedFX;
+        float m_GrainBase = -1f, m_BloomBase = -1f;
 
         float m_Danger, m_DangerTarget;
         float m_Impact;        // 0..1 decaying pulse
@@ -63,6 +67,10 @@ namespace GooseBrawl
             profile.TryGet(out m_Lens);
             profile.TryGet(out m_CA);
             profile.TryGet(out m_Color);
+            profile.TryGet(out m_Grain);
+            profile.TryGet(out m_Bloom);
+            if (m_Grain != null) m_GrainBase = m_Grain.intensity.value;
+            if (m_Bloom != null) m_BloomBase = m_Bloom.intensity.value;
             if (keyLight == null)
             {
                 foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
@@ -74,6 +82,15 @@ namespace GooseBrawl
         public void SetDanger(float danger01) => m_DangerTarget = Mathf.Clamp01(danger01);
         public void SetSlowMotion(bool on) => m_SlowMoTarget = on ? 1f : 0f;
         public void SetRage(bool on) => m_RageTarget = on ? 1f : 0f;
+
+        /// <summary>Adaptive quality tier 3: drop the grain, bloom and chromatic aberration (the cheap-to-lose effects).</summary>
+        public void SetReducedFX(bool reduced)
+        {
+            m_ReducedFX = reduced;
+            if (m_Grain != null && m_GrainBase >= 0f) m_Grain.intensity.value = reduced ? 0f : m_GrainBase;
+            if (m_Bloom != null && m_BloomBase >= 0f) m_Bloom.intensity.value = reduced ? 0f : m_BloomBase;
+        }
+        public bool ReducedFX => m_ReducedFX;
 
         /// <summary>Short lens-distortion + chromatic pulse for impacts (lunge launch, catch, crack).</summary>
         public void Impact(float strength)
@@ -119,7 +136,7 @@ namespace GooseBrawl
                 m_Lens.xMultiplier.value = 1f;
                 m_Lens.yMultiplier.value = 1f;
             }
-            if (m_CA != null) m_CA.intensity.value = Mathf.Max(caBase, 0.55f * impact + 0.12f * m_Danger * m_Danger);
+            if (m_CA != null) m_CA.intensity.value = m_ReducedFX ? 0f : Mathf.Max(caBase, 0.55f * impact + 0.12f * m_Danger * m_Danger);
             if (m_Color != null)
             {
                 m_Color.saturation.value = saturationBase - 45f * m_SlowMo - 14f * m_Rage * (1f - m_SlowMo);
